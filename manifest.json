@@ -3,7 +3,7 @@
   "name": "Backstash",
   "version": "0.1.0",
   "description": "Minimal proof of concept: close current tab and reopen it later.",
-  "permissions": ["tabs", "storage", "alarms"],
+  "permissions": ["tabs", "storage", "alarms", "notifications"],
   "background": {
     "scripts": ["background.js"]
   },

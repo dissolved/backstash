@@ -95,11 +95,14 @@ async function restoreStashedTabById(itemId) {
   }
 
   try {
-    // For the PoC, just reopen in a normal new foreground tab.
-    await browser.tabs.create({
+    // Reopen in a normal new background tab.
+    // TODO: Ensure tab is restored in the same container from which it was stashed
+    const restoredTab = await browser.tabs.create({
       url: item.url,
-      active: true,
+      active: false,
     });
+
+    await notifyTabRestored(item);
   } catch (error) {
     console.error("Failed to restore tab:", item.url, error);
     return;
@@ -110,6 +113,22 @@ async function restoreStashedTabById(itemId) {
   await setStashedTabs(remaining);
 
   console.log(`Restored tab "${item.title}"`);
+}
+
+/**
+ * Notify tab has been restored
+ */
+async function notifyTabRestored(item) {
+  try {
+    await browser.notifications.create(`restored:${item.id}`, {
+      type: "basic",
+      iconUrl: browser.runtime.getURL("icons/backstash-48.png"),
+      title: "Backstash restored a tab",
+      message: item.title ?? item.url,
+    });
+  } catch (error) {
+    console.error("Failed to show notification:", error);
+  }
 }
 
 /**
