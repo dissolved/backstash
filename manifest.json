@@ -1,0 +1,19 @@
+{
+  "manifest_version": 3,
+  "name": "Backstash",
+  "version": "0.1.0",
+  "description": "Minimal proof of concept: close current tab and reopen it later.",
+  "permissions": ["tabs", "storage", "alarms"],
+  "background": {
+    "scripts": ["background.js"]
+  },
+  "action": {
+    "default_title": "Snooze tab for 1 minute"
+  },
+  "browser_specific_settings": {
+    "gecko": {
+      "id": "backstash@codedissolved.com",
+      "strict_min_version": "109.0"
+    }
+  }
+}
