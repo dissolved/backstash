@@ -15,5 +15,21 @@
       "id": "backstash@codedissolved.com",
       "strict_min_version": "109.0"
     }
+  },
+  "commands": {
+    "stash-1m": {
+      "suggested_key": {
+        "default": "Ctrl+Shift+1",
+        "mac": "Ctrl+Shift+1"
+      },
+      "description": "Stash tab for 1 minute"
+    },
+    "stash-5m": {
+      "suggested_key": {
+        "default": "Ctrl+Shift+2",
+        "mac": "Ctrl+Shift+2"
+      },
+      "description": "Stash tab for 5 minutes"
+    }
   }
 }

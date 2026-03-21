@@ -1,13 +1,3 @@
-// Backstash (PoC)
-// Minimal behavior:
-// 1. User clicks the toolbar button
-// 2. We read the active tab
-// 3. We save enough metadata to reopen it later
-// 4. We create a 1-minute alarm
-// 5. We close the tab
-// 6. When the alarm fires, we recreate the tab
-
-const STASH_MINUTES = 1;
 const STORAGE_KEY = "stashedTabs";
 
 /**
@@ -42,9 +32,9 @@ function makeItemId() {
 }
 
 /**
- * Stash the currently active tab for STASH_MINUTES.
+ * Stash the currently active tab for provided minutes.
  */
-async function stashActiveTab() {
+async function stashActiveTab(minutes) {
   const tabs = await browser.tabs.query({
     active: true,
     currentWindow: true,
@@ -64,7 +54,7 @@ async function stashActiveTab() {
   }
 
   const itemId = makeItemId();
-  const wakeAt = Date.now() + STASH_MINUTES * 60 * 1000;
+  const wakeAt = Date.now() + minutes * 60 * 1000;
 
   const stashedItem = {
     id: itemId,
@@ -127,9 +117,20 @@ async function restoreStashedTabById(itemId) {
  */
 browser.action.onClicked.addListener(async () => {
   try {
-    await stashActiveTab();
+    await stashActiveTab(1);
   } catch (error) {
     console.error("Failed to stash active tab:", error);
+  }
+});
+
+/**
+ * Keyboard shortcut handler.
+ */
+browser.commands.onCommand.addListener((command) => {
+  if (command === "stash-1m") {
+    stashActiveTab(1);
+  } else if (command === "stash-5m") {
+    stashActiveTab(5);
   }
 });
 
