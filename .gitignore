@@ -1,0 +1,26 @@
+# OS junk
+.DS_Store
+Thumbs.db
+
+# Editor / IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Logs
+*.log
+
+# Environment / secrets (future-proofing)
+.env
+.env.local
+
+# Temporary files
+tmp/
+temp/
+
+# Packaged extension files
+*.xpi
+dist/
+build/
