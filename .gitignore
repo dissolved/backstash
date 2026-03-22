@@ -24,3 +24,4 @@ temp/
 *.xpi
 dist/
 build/
+node_modules/

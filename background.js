@@ -1,34 +1,47 @@
-const STORAGE_KEY = "stashedTabs";
-
-/**
- * Read the current stashed-tab list from extension storage.
- * Returns an array.
- */
-async function getStashedTabs() {
-  const result = await browser.storage.local.get(STORAGE_KEY);
-  return result[STORAGE_KEY] ?? [];
-}
-
-/**
- * Write the stashed-tab list back to storage.
- */
-async function setStashedTabs(items) {
-  await browser.storage.local.set({ [STORAGE_KEY]: items });
-}
-
+const RESTORE_EVENT_PREFIX = "restore-stash:";
+const DEFAULT_STASH_MINUTES = 1;
 /**
  * Build a unique alarm name for one stashed tab.
  */
 function makeAlarmName(itemId) {
-  return `restore-tab:${itemId}`;
+  return RESTORE_EVENT_PREFIX + itemId;
 }
 
 /**
  * Create a simple unique ID.
- * Good enough for a local proof of concept.
  */
 function makeItemId() {
   return `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+}
+
+/**
+ * buildStashItem
+ */
+function buildStashItem(tab, wakeAt) {
+  return {
+    id: makeItemId(),
+    url: tab.url,
+    title: tab.title ?? tab.url,
+    createdAt: Date.now(),
+    wakeAt,
+    originalWindowId: tab.windowId ?? null,
+    cookieStoreId: tab.cookieStoreId ?? null,
+    status: "scheduled",
+    restoredTabId: null,
+    notificationId: null,
+  };
+}
+
+// Skip tabs we probably shouldn't try to restore this way.
+// about:, moz-extension:, and some internal pages can be problematic.
+function isSupportedTabUrl(url) {
+  return Boolean(url) && !/^(about:|moz-extension:|chrome:)/.test(url);
+}
+
+async function createRestoreAlarm(stashItem) {
+  await browser.alarms.create(makeAlarmName(stashItem.id), {
+    when: stashItem.wakeAt,
+  });
 }
 
 /**
@@ -46,88 +59,117 @@ async function stashActiveTab(minutes) {
     return;
   }
 
-  // Skip tabs we probably shouldn't try to restore this way.
-  // about:, moz-extension:, and some internal pages can be problematic.
-  if (!tab.url || /^(about:|moz-extension:|chrome:)/.test(tab.url)) {
-    console.warn("This tab type is not supported for stashing:", tab.url);
+  if (!isSupportedTabUrl(tab.url)) {
+    console.warn("This tab type cannot be stashed:", tab.url);
     return;
   }
 
-  const itemId = makeItemId();
   const wakeAt = Date.now() + minutes * 60 * 1000;
+  const stashItem = buildStashItem(tab, wakeAt);
 
-  const stashedItem = {
-    id: itemId,
-    url: tab.url,
-    title: tab.title ?? tab.url,
-    originalWindowId: tab.windowId,
-    createdAt: Date.now(),
-    wakeAt,
-  };
+  const stashes = await getStashes();
+  stashes.push(stashItem);
+  await setStashes(stashes);
 
-  const existing = await getStashedTabs();
-  existing.push(stashedItem);
-  await setStashedTabs(existing);
-
-  // Create an alarm that will fire at the wake time.
-  await browser.alarms.create(makeAlarmName(itemId), {
-    when: wakeAt,
+  await updateState({
+    lastStashPreset: {
+      kind: "minutes",
+      value: minutes,
+    },
   });
 
-  // Close the tab after state is saved.
+  await createRestoreAlarm(stashItem);
   await browser.tabs.remove(tab.id);
 
   console.log(
-    `Stashed tab "${stashedItem.title}" until ${new Date(wakeAt).toLocaleTimeString()}`,
+    `Stashed tab "${stashItem.title}" until ${new Date(wakeAt).toLocaleTimeString()}`,
   );
+}
+
+async function createRestoredTab(stashItem) {
+  const settings = await getSettings();
+
+  const createOptions = {
+    url: stashItem.url,
+    active: !settings.restoreInBackground,
+  };
+
+  if (stashItem.cookieStoreId) {
+    createOptions.cookieStoreId = stashItem.cookieStoreId;
+  }
+
+  try {
+    return await browser.tabs.create(createOptions);
+  } catch (error) {
+    if (stashItem.cookieStoreId) {
+      console.warn(
+        "Failed to restore with original container; retrying without cookieStoreId.",
+        error,
+      );
+
+      delete createOptions.cookieStoreId;
+      return await browser.tabs.create(createOptions);
+    }
+
+    throw error;
+  }
 }
 
 /**
  * Restore a stashed tab when its alarm fires.
  */
-async function restoreStashedTabById(itemId) {
-  const existing = await getStashedTabs();
-  const item = existing.find((x) => x.id === itemId);
+async function restoreStashById(stashId) {
+  const stashes = await getStashes();
+  const stashItem = stashes.find((item) => item.id === stashId);
 
-  if (!item) {
-    console.warn("No stashed item found for ID:", itemId);
+  if (!stashItem) {
+    console.warn("No stashed item found for ID:", stashId);
     return;
   }
 
   try {
-    // Reopen in a normal new background tab.
-    // TODO: Ensure tab is restored in the same container from which it was stashed
-    const restoredTab = await browser.tabs.create({
-      url: item.url,
-      active: false,
-    });
+    const restoredTab = await createRestoredTab(stashItem);
+    const notificationId = await notifyStashRestored(stashItem);
 
-    await notifyTabRestored(item);
+    const remaining = stashes.filter((item) => item.id !== stashId);
+    await setStashes(remaining);
+
+    console.log(
+      `Restored "${stashItem.title}" in ${
+        restoredTab.cookieStoreId ?? "default"
+      } container.`,
+    );
+
+    return {
+      restoredTabId: restoredTab.id,
+      notificationId,
+    };
   } catch (error) {
-    console.error("Failed to restore tab:", item.url, error);
-    return;
+    console.error("Failed to restore stash:", stashItem.url, error);
   }
-
-  // Remove restored item from storage.
-  const remaining = existing.filter((x) => x.id !== itemId);
-  await setStashedTabs(remaining);
-
-  console.log(`Restored tab "${item.title}"`);
 }
 
 /**
  * Notify tab has been restored
  */
-async function notifyTabRestored(item) {
+async function notifyStashRestored(stashItem) {
+  const settings = await getSettings();
+  if (!settings.showNotifications) {
+    return null;
+  }
+
+  const notificationId = `restored:${stashItem.id}`;
+
   try {
-    await browser.notifications.create(`restored:${item.id}`, {
+    await browser.notifications.create(notificationId, {
       type: "basic",
-      iconUrl: browser.runtime.getURL("icons/backstash-48.png"),
       title: "Backstash restored a tab",
-      message: item.title ?? item.url,
+      message: stashItem.title ?? stashItem.url,
     });
+    return notificationId;
   } catch (error) {
     console.error("Failed to show notification:", error);
+    return null;
   }
 }
 
@@ -136,7 +178,7 @@ async function notifyTabRestored(item) {
  */
 browser.action.onClicked.addListener(async () => {
   try {
-    await stashActiveTab(1);
+    await stashActiveTab(DEFAULT_STASH_MINUTES);
   } catch (error) {
     console.error("Failed to stash active tab:", error);
   }
@@ -157,16 +199,17 @@ browser.commands.onCommand.addListener((command) => {
  * Alarm handler.
  */
 browser.alarms.onAlarm.addListener(async (alarm) => {
-  const prefix = "restore-tab:";
-  if (!alarm.name.startsWith(prefix)) {
+  if (!alarm.name.startsWith(RESTORE_EVENT_PREFIX)) {
     return;
   }
 
-  const itemId = alarm.name.slice(prefix.length);
+  const stashID = alarm.name.slice(RESTORE_EVENT_PREFIX.length);
 
   try {
-    await restoreStashedTabById(itemId);
+    await restoreStashById(stashID);
   } catch (error) {
     console.error("Failed while handling alarm:", alarm.name, error);
   }
 });
+
+console.log("Backstash background loaded.");
