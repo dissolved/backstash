@@ -17,17 +17,11 @@ function setBusy(isBusy) {
 form.addEventListener("submit", async (event) => {
   event.preventDefault();
 
-  const rawMinutes = minutesInput.value.trim();
-  if (!/^\d+$/.test(rawMinutes)) {
-    setStatus("Enter a whole number of minutes.");
-    minutesInput.focus();
-    minutesInput.select();
-    return;
-  }
-
-  const minutes = Number.parseInt(rawMinutes, 10);
-  if (minutes <= 0) {
-    setStatus("Enter a whole number of minutes greater than zero.");
+  const minutes = BackstashPresets.parseDurationInputToMinutes(
+    minutesInput.value,
+  );
+  if (minutes === null) {
+    setStatus("Enter a duration like 15, 15m, 2h, or 3d.");
     minutesInput.focus();
     minutesInput.select();
     return;

@@ -7,6 +7,29 @@ function isValidDurationMinutes(minutes) {
   return Number.isInteger(minutes) && minutes > 0;
 }
 
+function parseDurationInputToMinutes(value) {
+  if (typeof value !== "string") {
+    return null;
+  }
+
+  const normalized = value.trim().toLowerCase();
+  const match = /^(\d+)\s*([mhd])?$/.exec(normalized);
+  if (!match) {
+    return null;
+  }
+
+  const amount = Number.parseInt(match[1], 10);
+  if (!Number.isInteger(amount) || amount <= 0) {
+    return null;
+  }
+
+  const unit = match[2] ?? "m";
+  const multiplier = unit === "h" ? 60 : unit === "d" ? 1440 : 1;
+  const minutes = amount * multiplier;
+
+  return isValidDurationMinutes(minutes) ? minutes : null;
+}
+
 function normalizeStashPresetMinutes(presets) {
   if (!Array.isArray(presets)) {
     return [...SHARED_DEFAULT_STASH_PRESET_MINUTES];
@@ -60,6 +83,7 @@ function getRepeatLastStashMinutes(state = {}) {
 
 globalThis.BackstashPresets = {
   isValidDurationMinutes,
+  parseDurationInputToMinutes,
   getDefaultStashPresetMinutes,
   getCommandStashPresetMinutes,
   getRepeatLastStashMinutes,
@@ -69,6 +93,7 @@ if (typeof module !== "undefined" && module.exports) {
   module.exports = {
     DEFAULT_STASH_PRESET_MINUTES: SHARED_DEFAULT_STASH_PRESET_MINUTES,
     isValidDurationMinutes,
+    parseDurationInputToMinutes,
     normalizeStashPresetMinutes,
     getDefaultStashPresetMinutes,
     getCommandStashPresetMinutes,

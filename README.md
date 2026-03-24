@@ -12,7 +12,7 @@ Unlike tab suspension tools, Backstash removes tabs entirely and brings them bac
 - Restore tabs in the **same container** (Multi-Account Containers support)
 - Restore tabs in the **background** (no focus interruption)
 - Optional notifications when tabs are restored
-- Keyboard-first workflow with presets and a stash popup
+- Keyboard-first workflow with presets and shorthand duration entry
 
 
 ## 🚧 Status

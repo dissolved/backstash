@@ -4,6 +4,7 @@ const assert = require("node:assert/strict");
 const {
   DEFAULT_STASH_PRESET_MINUTES,
   isValidDurationMinutes,
+  parseDurationInputToMinutes,
   normalizeStashPresetMinutes,
   getDefaultStashPresetMinutes,
   getCommandStashPresetMinutes,
@@ -20,6 +21,29 @@ test("isValidDurationMinutes rejects invalid minute values", () => {
   assert.equal(isValidDurationMinutes(-5), false);
   assert.equal(isValidDurationMinutes(30.5), false);
   assert.equal(isValidDurationMinutes("60"), false);
+});
+
+test("parseDurationInputToMinutes parses minutes, hours, and days", () => {
+  assert.equal(parseDurationInputToMinutes("15"), 15);
+  assert.equal(parseDurationInputToMinutes("15m"), 15);
+  assert.equal(parseDurationInputToMinutes("2h"), 120);
+  assert.equal(parseDurationInputToMinutes("3d"), 4320);
+});
+
+test("parseDurationInputToMinutes ignores spacing and case", () => {
+  assert.equal(parseDurationInputToMinutes("  45M "), 45);
+  assert.equal(parseDurationInputToMinutes(" 2H "), 120);
+  assert.equal(parseDurationInputToMinutes("1 h"), 60);
+  assert.equal(parseDurationInputToMinutes("2 d"), 2880);
+  assert.equal(parseDurationInputToMinutes("15 m"), 15);
+});
+
+test("parseDurationInputToMinutes rejects invalid formats", () => {
+  assert.equal(parseDurationInputToMinutes(""), null);
+  assert.equal(parseDurationInputToMinutes("0"), null);
+  assert.equal(parseDurationInputToMinutes("2.3"), null);
+  assert.equal(parseDurationInputToMinutes("1w"), null);
+  assert.equal(parseDurationInputToMinutes("abc"), null);
 });
 
 test("normalizeStashPresetMinutes falls back to defaults", () => {

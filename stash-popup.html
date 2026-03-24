@@ -11,7 +11,7 @@
       <p class="eyebrow">Backstash</p>
       <h1>Stash for later</h1>
       <form id="stash-form" class="stash-form">
-        <label class="field-label" for="minutes-input">Minutes</label>
+        <label class="field-label" for="minutes-input">Duration</label>
         <div class="input-row">
           <input
             id="minutes-input"
@@ -20,14 +20,16 @@
             type="text"
             inputmode="numeric"
             autocomplete="off"
-            placeholder="60"
+            placeholder="2h"
           />
           <button type="submit" class="submit-button">Stash</button>
         </div>
-        <p class="helper-text">Enter whole minutes such as <code>15</code>, <code>60</code>, or <code>1440</code>.</p>
+        <p class="helper-text">Enter <code>15</code>, <code>15m</code>, <code>2h</code>, or <code>3d</code>.</p>
         <p id="status-message" class="status-message" aria-live="polite"></p>
       </form>
     </main>
+    <script src="constants.js"></script>
+    <script src="stash-presets.js"></script>
     <script src="stash-popup.js"></script>
   </body>
 </html>
