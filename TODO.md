@@ -79,6 +79,8 @@
   - restore now
   - delete/cancel stash
   - edit scheduled restore time
+- Show the scheduled restore date/time clearly in the UI.
+- Support ad hoc selective restore before the scheduled time.
 - Decide whether this lives in:
   - a popup,
   - an options page,

@@ -46,6 +46,10 @@ async function createRestoreAlarm(stashItem) {
   });
 }
 
+async function clearRestoreAlarm(itemId) {
+  await browser.alarms.clear(makeAlarmName(itemId));
+}
+
 async function getTargetWindowId(stashItem) {
   const existingWindowIds = [];
 
@@ -198,6 +202,32 @@ async function createRestoredTab(stashItem) {
   }
 }
 
+async function restoreStashItem(stashItem) {
+  try {
+    const restoredTab = await createRestoredTab(stashItem);
+    const notificationId = await notifyStashRestored(stashItem);
+    await clearRestoreAlarm(stashItem.id);
+
+    console.log(
+      `Restored "${stashItem.title}" in ${
+        restoredTab.cookieStoreId ?? "default"
+      } container.`,
+    );
+
+    return {
+      ok: true,
+      restoredTabId: restoredTab.id,
+      notificationId,
+    };
+  } catch (error) {
+    console.error("Failed to restore stash:", stashItem.url, error);
+    return {
+      ok: false,
+      error,
+    };
+  }
+}
+
 /**
  * Restore a stashed tab when its alarm fires.
  */
@@ -210,26 +240,52 @@ async function restoreStashById(stashId) {
     return;
   }
 
-  try {
-    const restoredTab = await createRestoredTab(stashItem);
-    const notificationId = await notifyStashRestored(stashItem);
-
-    const remaining = stashes.filter((item) => item.id !== stashId);
-    await setStashes(remaining);
-
-    console.log(
-      `Restored "${stashItem.title}" in ${
-        restoredTab.cookieStoreId ?? "default"
-      } container.`,
-    );
-
-    return {
-      restoredTabId: restoredTab.id,
-      notificationId,
-    };
-  } catch (error) {
-    console.error("Failed to restore stash:", stashItem.url, error);
+  const result = await restoreStashItem(stashItem);
+  if (!result.ok) {
+    return result;
   }
+
+  const remaining = stashes.filter((item) => item.id !== stashId);
+  await setStashes(remaining);
+
+  return result;
+}
+
+async function restoreAllStashes() {
+  const stashes = await getStashes();
+  if (stashes.length === 0) {
+    console.warn("No stashed tabs are available to restore.");
+    return {
+      ok: false,
+      restoredCount: 0,
+      failedCount: 0,
+    };
+  }
+
+  const remaining = [];
+  let restoredCount = 0;
+
+  for (const stashItem of stashes) {
+    const result = await restoreStashItem(stashItem);
+    if (result.ok) {
+      restoredCount += 1;
+      continue;
+    }
+
+    remaining.push(stashItem);
+  }
+
+  await setStashes(remaining);
+
+  console.log(
+    `Restore-all completed: ${restoredCount} restored, ${remaining.length} remaining.`,
+  );
+
+  return {
+    ok: restoredCount > 0,
+    restoredCount,
+    failedCount: remaining.length,
+  };
 }
 
 /**
@@ -262,6 +318,11 @@ async function notifyStashRestored(stashItem) {
 browser.commands.onCommand.addListener(async (command) => {
   if (command === "open-stash-overlay") {
     await browser.action.openPopup();
+    return;
+  }
+
+  if (command === "restore-all-stashes") {
+    await restoreAllStashes();
     return;
   }
 

@@ -52,6 +52,13 @@
       },
       "description": "Open stash overlay"
     },
+    "restore-all-stashes": {
+      "suggested_key": {
+        "default": "Ctrl+Alt+A",
+        "mac": "MacCtrl+Alt+A"
+      },
+      "description": "Restore all stashed tabs"
+    },
     "repeat-last-stash": {
       "suggested_key": {
         "default": "Ctrl+Alt+R",
