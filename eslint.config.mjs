@@ -13,6 +13,8 @@ export default defineConfig([
         ...globals.browser,
         ...globals.webextensions,
         browser: "readonly",
+        BackstashConstants: "readonly",
+        BackstashPresets: "readonly",
         buildStashRestoreContext: "readonly",
         chooseRestoreWindowId: "readonly",
         chooseRestoreTabIndex: "readonly",

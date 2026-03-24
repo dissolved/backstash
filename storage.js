@@ -6,6 +6,8 @@ const DEFAULT_DATA = {
   settings: {
     restoreInBackground: true,
     showNotifications: true,
+    stashPresetMinutes: [...BackstashConstants.DEFAULT_STASH_PRESET_MINUTES],
+    defaultStashPresetMinutes: BackstashConstants.DEFAULT_STASH_PRESET_MINUTES[0],
   },
   state: {
     lastStashPreset: null,

@@ -5,7 +5,7 @@
   "description": "Minimal proof of concept: close current tab and reopen it later.",
   "permissions": ["tabs", "storage", "alarms", "notifications", "cookies"],
   "background": {
-    "scripts": ["storage.js", "restore-logic.js", "background.js"]
+    "scripts": ["constants.js", "storage.js", "restore-logic.js", "stash-presets.js", "background.js"]
   },
   "action": {
     "default_title": "Stash tab"
@@ -17,19 +17,26 @@
     }
   },
   "commands": {
-    "stash-1m": {
+    "duration-1": {
       "suggested_key": {
         "default": "Ctrl+Shift+1",
         "mac": "Ctrl+Shift+1"
       },
       "description": "Stash tab for 1 minute"
     },
-    "stash-5m": {
+    "duration-2": {
       "suggested_key": {
         "default": "Ctrl+Shift+2",
         "mac": "Ctrl+Shift+2"
       },
-      "description": "Stash tab for 5 minutes"
+      "description": "Stash tab for 1 hour"
+    },
+    "duration-3": {
+      "suggested_key": {
+        "default": "Ctrl+Shift+3",
+        "mac": "Ctrl+Shift+3"
+      },
+      "description": "Stash tab for 1 day"
     }
   }
 }

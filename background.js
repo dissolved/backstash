@@ -1,5 +1,4 @@
 const RESTORE_EVENT_PREFIX = "restore-stash:";
-const DEFAULT_STASH_MINUTES = 1;
 /**
  * Build a unique alarm name for one stashed tab.
  */
@@ -138,6 +137,12 @@ async function stashActiveTab(minutes) {
   );
 }
 
+async function stashActiveTabForDefaultPreset() {
+  const settings = await getSettings();
+  const minutes = BackstashPresets.getDefaultStashPresetMinutes(settings);
+  await stashActiveTab(minutes);
+}
+
 async function createRestoredTab(stashItem) {
   const settings = await getSettings();
   const windowId = await getTargetWindowId(stashItem);
@@ -240,7 +245,7 @@ async function notifyStashRestored(stashItem) {
  */
 browser.action.onClicked.addListener(async () => {
   try {
-    await stashActiveTab(DEFAULT_STASH_MINUTES);
+    await stashActiveTabForDefaultPreset();
   } catch (error) {
     console.error("Failed to stash active tab:", error);
   }
@@ -249,11 +254,15 @@ browser.action.onClicked.addListener(async () => {
 /**
  * Keyboard shortcut handler.
  */
-browser.commands.onCommand.addListener((command) => {
-  if (command === "stash-1m") {
-    stashActiveTab(1);
-  } else if (command === "stash-5m") {
-    stashActiveTab(5);
+browser.commands.onCommand.addListener(async (command) => {
+  const settings = await getSettings();
+  const minutes = BackstashPresets.getCommandStashPresetMinutes(
+    command,
+    settings,
+  );
+
+  if (minutes !== null) {
+    stashActiveTab(minutes);
   }
 });
 
