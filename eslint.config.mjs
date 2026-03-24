@@ -21,6 +21,7 @@ export default defineConfig([
         getStashes: "readonly",
         setStashes: "readonly",
         getSettings: "readonly",
+        getState: "readonly",
         updateState: "readonly",
       },
     },

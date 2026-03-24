@@ -11,7 +11,11 @@ function normalizeStashPresetMinutes(presets) {
   const normalized = [];
 
   for (const preset of presets) {
-    if (!Number.isInteger(preset) || preset <= 0 || normalized.includes(preset)) {
+    if (
+      !Number.isInteger(preset) ||
+      preset <= 0 ||
+      normalized.includes(preset)
+    ) {
       continue;
     }
 
@@ -48,9 +52,20 @@ function getCommandStashPresetMinutes(command, settings = {}) {
   return presets[presetIndex] ?? null;
 }
 
+function getRepeatLastStashMinutes(state = {}) {
+  const minutes = state.lastStashPresetMinutes;
+
+  if (!Number.isInteger(minutes) || minutes <= 0) {
+    return null;
+  }
+
+  return minutes;
+}
+
 globalThis.BackstashPresets = {
   getDefaultStashPresetMinutes,
   getCommandStashPresetMinutes,
+  getRepeatLastStashMinutes,
 };
 
 if (typeof module !== "undefined" && module.exports) {
@@ -59,5 +74,6 @@ if (typeof module !== "undefined" && module.exports) {
     normalizeStashPresetMinutes,
     getDefaultStashPresetMinutes,
     getCommandStashPresetMinutes,
+    getRepeatLastStashMinutes,
   };
 }

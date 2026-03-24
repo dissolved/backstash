@@ -6,6 +6,7 @@ const {
   normalizeStashPresetMinutes,
   getDefaultStashPresetMinutes,
   getCommandStashPresetMinutes,
+  getRepeatLastStashMinutes,
 } = require("../stash-presets.js");
 
 test("normalizeStashPresetMinutes falls back to defaults", () => {
@@ -62,5 +63,36 @@ test("getCommandStashPresetMinutes uses the configured preset list", () => {
       stashPresetMinutes: [5, 15, 30],
     }),
     15,
+  );
+});
+
+test("getRepeatLastStashMinutes returns the previous minute preset", () => {
+  assert.equal(
+    getRepeatLastStashMinutes({
+      lastStashPresetMinutes: 60,
+    }),
+    60,
+  );
+});
+
+test("getRepeatLastStashMinutes ignores unsupported or missing state", () => {
+  assert.equal(getRepeatLastStashMinutes({}), null);
+  assert.equal(
+    getRepeatLastStashMinutes({
+      lastStashPresetMinutes: 0,
+    }),
+    null,
+  );
+  assert.equal(
+    getRepeatLastStashMinutes({
+      lastStashPresetMinutes: -5,
+    }),
+    null,
+  );
+  assert.equal(
+    getRepeatLastStashMinutes({
+      lastStashPresetMinutes: 30.5,
+    }),
+    null,
   );
 });

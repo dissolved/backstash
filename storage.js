@@ -7,10 +7,11 @@ const DEFAULT_DATA = {
     restoreInBackground: true,
     showNotifications: true,
     stashPresetMinutes: [...BackstashConstants.DEFAULT_STASH_PRESET_MINUTES],
-    defaultStashPresetMinutes: BackstashConstants.DEFAULT_STASH_PRESET_MINUTES[0],
+    defaultStashPresetMinutes:
+      BackstashConstants.DEFAULT_STASH_PRESET_MINUTES[0],
   },
   state: {
-    lastStashPreset: null,
+    lastStashPresetMinutes: null,
   },
 };
 
@@ -63,6 +64,11 @@ async function setStashes(stashes) {
 async function getSettings() {
   const data = await getData();
   return data.settings;
+}
+
+async function getState() {
+  const data = await getData();
+  return data.state;
 }
 
 async function updateState(patch) {

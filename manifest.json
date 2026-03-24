@@ -5,7 +5,13 @@
   "description": "Minimal proof of concept: close current tab and reopen it later.",
   "permissions": ["tabs", "storage", "alarms", "notifications", "cookies"],
   "background": {
-    "scripts": ["constants.js", "storage.js", "restore-logic.js", "stash-presets.js", "background.js"]
+    "scripts": [
+      "constants.js",
+      "storage.js",
+      "restore-logic.js",
+      "stash-presets.js",
+      "background.js"
+    ]
   },
   "action": {
     "default_title": "Stash tab"
@@ -19,24 +25,31 @@
   "commands": {
     "duration-1": {
       "suggested_key": {
-        "default": "Ctrl+Shift+1",
-        "mac": "Ctrl+Shift+1"
+        "default": "Ctrl+Alt+1",
+        "mac": "MacCtrl+Alt+1"
       },
-      "description": "Stash tab for 1 minute"
+      "description": "Stash duration preset 1"
     },
     "duration-2": {
       "suggested_key": {
-        "default": "Ctrl+Shift+2",
-        "mac": "Ctrl+Shift+2"
+        "default": "Ctrl+Alt+2",
+        "mac": "MacCtrl+Alt+2"
       },
-      "description": "Stash tab for 1 hour"
+      "description": "Stash duration preset 2"
     },
     "duration-3": {
       "suggested_key": {
-        "default": "Ctrl+Shift+3",
-        "mac": "Ctrl+Shift+3"
+        "default": "Ctrl+Alt+3",
+        "mac": "MacCtrl+Alt+3"
       },
-      "description": "Stash tab for 1 day"
+      "description": "Stash duration preset 3"
+    },
+    "repeat-last-stash": {
+      "suggested_key": {
+        "default": "Ctrl+Alt+R",
+        "mac": "MacCtrl+Alt+R"
+      },
+      "description": "Repeat last stash"
     }
   }
 }

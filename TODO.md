@@ -70,7 +70,7 @@
 
 ### 8. Repeat last stash
 - Add a fast action to repeat the most recent stash choice.
-- Use the existing `state.lastStashPreset` field.
+- Use the existing `state.lastStashPresetMinutes` field.
 - Useful once multiple presets and custom durations exist.
 
 ### 9. Stash management UI

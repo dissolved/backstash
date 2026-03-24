@@ -90,7 +90,10 @@ async function getRestoreIndex(windowId, originalTabIndex) {
       tabCount: tabs.length,
     });
   } catch (error) {
-    console.warn("Could not determine restore tab index; appending instead.", error);
+    console.warn(
+      "Could not determine restore tab index; appending instead.",
+      error,
+    );
     return null;
   }
 }
@@ -123,10 +126,7 @@ async function stashActiveTab(minutes) {
   await setStashes(stashes);
 
   await updateState({
-    lastStashPreset: {
-      kind: "minutes",
-      value: minutes,
-    },
+    lastStashPresetMinutes: minutes,
   });
 
   await createRestoreAlarm(stashItem);
@@ -140,6 +140,18 @@ async function stashActiveTab(minutes) {
 async function stashActiveTabForDefaultPreset() {
   const settings = await getSettings();
   const minutes = BackstashPresets.getDefaultStashPresetMinutes(settings);
+  await stashActiveTab(minutes);
+}
+
+async function repeatLastStash() {
+  const state = await getState();
+  const minutes = BackstashPresets.getRepeatLastStashMinutes(state);
+
+  if (minutes === null) {
+    console.warn("No previous stash preset is available to repeat.");
+    return;
+  }
+
   await stashActiveTab(minutes);
 }
 
@@ -255,6 +267,11 @@ browser.action.onClicked.addListener(async () => {
  * Keyboard shortcut handler.
  */
 browser.commands.onCommand.addListener(async (command) => {
+  if (command === "repeat-last-stash") {
+    await repeatLastStash();
+    return;
+  }
+
   const settings = await getSettings();
   const minutes = BackstashPresets.getCommandStashPresetMinutes(
     command,
@@ -262,7 +279,7 @@ browser.commands.onCommand.addListener(async (command) => {
   );
 
   if (minutes !== null) {
-    stashActiveTab(minutes);
+    await stashActiveTab(minutes);
   }
 });
 
