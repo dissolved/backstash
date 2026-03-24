@@ -25,3 +25,5 @@ Use this manual matrix when behavior changes touch Firefox extension APIs.
 | Preserve container | Stash a tab inside a Firefox Multi-Account Containers tab and wait for restore. | The restored tab keeps the original `cookieStoreId`. |
 | Container fallback | Restore a stashed container tab in a situation where the original container cannot be reused. | The restore retries without `cookieStoreId` instead of failing outright. |
 | Unsupported URL rejection | Try to stash an `about:` or other internal tab. | Backstash rejects the stash cleanly and does not schedule a restore. |
+| Popup stash flow | Open the toolbar popup or the keyboard overlay command, enter a whole-minute value, and submit. | Backstash closes the popup and schedules the tab with the entered minute duration. |
+| Popup invalid decimal | Open the popup, enter a decimal such as `2.3`, and submit. | Backstash keeps the popup open and shows an error asking for whole minutes. |

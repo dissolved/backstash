@@ -103,8 +103,9 @@ async function getRestoreIndex(windowId, originalTabIndex) {
  */
 async function stashActiveTab(minutes) {
   if (!BackstashPresets.isValidDurationMinutes(minutes)) {
-    console.warn("Invalid stash duration; expected a positive whole number of minutes.");
-    return;
+    const error = "Invalid stash duration; expected a positive whole number of minutes.";
+    console.warn(error);
+    return { ok: false, error };
   }
 
   const tabs = await browser.tabs.query({
@@ -114,13 +115,15 @@ async function stashActiveTab(minutes) {
 
   const tab = tabs[0];
   if (!tab) {
-    console.warn("No active tab found.");
-    return;
+    const error = "No active tab found.";
+    console.warn(error);
+    return { ok: false, error };
   }
 
   if (!isSupportedTabUrl(tab.url)) {
-    console.warn("This tab type cannot be stashed:", tab.url);
-    return;
+    const error = "This tab type cannot be stashed.";
+    console.warn(error, tab.url);
+    return { ok: false, error };
   }
 
   const wakeAt = Date.now() + minutes * 60 * 1000;
@@ -140,12 +143,8 @@ async function stashActiveTab(minutes) {
   console.log(
     `Stashed tab "${stashItem.title}" until ${new Date(wakeAt).toLocaleTimeString()}`,
   );
-}
 
-async function stashActiveTabForDefaultPreset() {
-  const settings = await getSettings();
-  const minutes = BackstashPresets.getDefaultStashPresetMinutes(settings);
-  await stashActiveTab(minutes);
+  return { ok: true };
 }
 
 async function repeatLastStash() {
@@ -258,20 +257,14 @@ async function notifyStashRestored(stashItem) {
 }
 
 /**
- * Toolbar button click handler.
- */
-browser.action.onClicked.addListener(async () => {
-  try {
-    await stashActiveTabForDefaultPreset();
-  } catch (error) {
-    console.error("Failed to stash active tab:", error);
-  }
-});
-
-/**
  * Keyboard shortcut handler.
  */
 browser.commands.onCommand.addListener(async (command) => {
+  if (command === "open-stash-overlay") {
+    await browser.action.openPopup();
+    return;
+  }
+
   if (command === "repeat-last-stash") {
     await repeatLastStash();
     return;
@@ -286,6 +279,14 @@ browser.commands.onCommand.addListener(async (command) => {
   if (minutes !== null) {
     await stashActiveTab(minutes);
   }
+});
+
+browser.runtime.onMessage.addListener((message) => {
+  if (message?.type !== "stash-for-minutes") {
+    return false;
+  }
+
+  return stashActiveTab(message.minutes);
 });
 
 /**

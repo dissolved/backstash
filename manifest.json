@@ -14,7 +14,8 @@
     ]
   },
   "action": {
-    "default_title": "Stash tab"
+    "default_title": "Stash tab",
+    "default_popup": "stash-popup.html"
   },
   "browser_specific_settings": {
     "gecko": {
@@ -43,6 +44,13 @@
         "mac": "MacCtrl+Alt+3"
       },
       "description": "Stash duration preset 3"
+    },
+    "open-stash-overlay": {
+      "suggested_key": {
+        "default": "Ctrl+Alt+S",
+        "mac": "MacCtrl+Alt+S"
+      },
+      "description": "Open stash overlay"
     },
     "repeat-last-stash": {
       "suggested_key": {

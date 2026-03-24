@@ -113,6 +113,9 @@
 - If tab-group restore is unsupported, should Backstash surface that in UI/settings or simply fail silently?
 - For absolute scheduling, what is the minimum viable input format that stays keyboard-friendly?
 
+## Future considerations
+- Low priority: support fractional minute durations.
+
 ## Nice-to-have implementation notes
 - Keep using the terms `stash`, `stashed`, and `stashes` consistently throughout code and UI.
 - Preserve Firefox Multi-Account Containers behavior by continuing to store and reuse `cookieStoreId`.

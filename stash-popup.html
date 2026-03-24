@@ -1,0 +1,33 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Backstash</title>
+    <link rel="stylesheet" href="stash-popup.css" />
+  </head>
+  <body>
+    <main class="popup-shell">
+      <p class="eyebrow">Backstash</p>
+      <h1>Stash for later</h1>
+      <form id="stash-form" class="stash-form">
+        <label class="field-label" for="minutes-input">Minutes</label>
+        <div class="input-row">
+          <input
+            id="minutes-input"
+            name="minutes"
+            class="minutes-input"
+            type="text"
+            inputmode="numeric"
+            autocomplete="off"
+            placeholder="60"
+          />
+          <button type="submit" class="submit-button">Stash</button>
+        </div>
+        <p class="helper-text">Enter whole minutes such as <code>15</code>, <code>60</code>, or <code>1440</code>.</p>
+        <p id="status-message" class="status-message" aria-live="polite"></p>
+      </form>
+    </main>
+    <script src="stash-popup.js"></script>
+  </body>
+</html>

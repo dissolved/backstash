@@ -1,0 +1,117 @@
+:root {
+  color-scheme: light;
+  --ink: #15202b;
+  --muted: #5e6c78;
+  --paper: linear-gradient(180deg, #fffdf8 0%, #f4efe4 100%);
+  --accent: #0f766e;
+  --accent-strong: #115e59;
+  --border: rgba(21, 32, 43, 0.14);
+  --error: #b42318;
+  --shadow: 0 18px 40px rgba(21, 32, 43, 0.14);
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  min-width: 320px;
+  font-family:
+    "Avenir Next",
+    Avenir,
+    "Segoe UI",
+    sans-serif;
+  color: var(--ink);
+  background: radial-gradient(circle at top left, #f6d8ad 0%, transparent 40%),
+    var(--paper);
+}
+
+.popup-shell {
+  padding: 18px;
+}
+
+.eyebrow {
+  margin: 0 0 6px;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--accent-strong);
+}
+
+h1 {
+  margin: 0 0 16px;
+  font-size: 24px;
+  line-height: 1.05;
+}
+
+.stash-form {
+  display: grid;
+  gap: 10px;
+}
+
+.field-label {
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.input-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 10px;
+}
+
+.minutes-input,
+.submit-button {
+  border-radius: 14px;
+  border: 1px solid var(--border);
+  box-shadow: var(--shadow);
+}
+
+.minutes-input {
+  padding: 14px 16px;
+  font: inherit;
+  font-size: 28px;
+  font-weight: 700;
+  background: rgba(255, 255, 255, 0.88);
+  color: var(--ink);
+}
+
+.minutes-input:focus {
+  outline: 2px solid color-mix(in srgb, var(--accent) 55%, white);
+  outline-offset: 2px;
+}
+
+.submit-button {
+  padding: 0 18px;
+  font: inherit;
+  font-weight: 700;
+  color: white;
+  background: linear-gradient(180deg, var(--accent) 0%, var(--accent-strong) 100%);
+  cursor: pointer;
+}
+
+.submit-button:disabled {
+  cursor: wait;
+  opacity: 0.8;
+}
+
+.helper-text,
+.status-message {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.4;
+}
+
+.helper-text {
+  color: var(--muted);
+}
+
+.status-message {
+  min-height: 18px;
+  color: var(--error);
+}
