@@ -25,6 +25,7 @@ function buildStashItem(tab, wakeAt) {
     createdAt: Date.now(),
     wakeAt,
     originalWindowId: tab.windowId ?? null,
+    originalTabIndex: Number.isInteger(tab.index) ? tab.index : null,
     cookieStoreId: tab.cookieStoreId ?? null,
     status: "scheduled",
     restoredTabId: null,
@@ -42,6 +43,42 @@ async function createRestoreAlarm(stashItem) {
   await browser.alarms.create(makeAlarmName(stashItem.id), {
     when: stashItem.wakeAt,
   });
+}
+
+async function getTargetWindowId(stashItem) {
+  if (stashItem.originalWindowId !== null) {
+    try {
+      await browser.windows.get(stashItem.originalWindowId);
+      return stashItem.originalWindowId;
+    } catch (error) {
+      console.warn(
+        "Original window is no longer available; falling back to another window.",
+        error,
+      );
+    }
+  }
+
+  try {
+    const window = await browser.windows.getLastFocused();
+    return window?.id ?? null;
+  } catch (error) {
+    console.warn("Could not determine a fallback window for restore.", error);
+    return null;
+  }
+}
+
+async function getRestoreIndex(windowId, originalTabIndex) {
+  if (windowId === null || originalTabIndex === null) {
+    return null;
+  }
+
+  try {
+    const tabs = await browser.tabs.query({ windowId });
+    return Math.min(originalTabIndex, tabs.length);
+  } catch (error) {
+    console.warn("Could not determine restore tab index; appending instead.", error);
+    return null;
+  }
 }
 
 /**
@@ -88,11 +125,21 @@ async function stashActiveTab(minutes) {
 
 async function createRestoredTab(stashItem) {
   const settings = await getSettings();
+  const windowId = await getTargetWindowId(stashItem);
+  const index = await getRestoreIndex(windowId, stashItem.originalTabIndex);
 
   const createOptions = {
     url: stashItem.url,
     active: !settings.restoreInBackground,
   };
+
+  if (windowId !== null) {
+    createOptions.windowId = windowId;
+  }
+
+  if (index !== null) {
+    createOptions.index = index;
+  }
 
   if (stashItem.cookieStoreId) {
     createOptions.cookieStoreId = stashItem.cookieStoreId;
