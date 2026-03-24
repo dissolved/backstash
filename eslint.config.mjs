@@ -9,9 +9,13 @@ export default defineConfig([
     extends: ["js/recommended"],
     languageOptions: {
       globals: {
+        ...globals.node,
         ...globals.browser,
         ...globals.webextensions,
         browser: "readonly",
+        buildStashRestoreContext: "readonly",
+        chooseRestoreWindowId: "readonly",
+        chooseRestoreTabIndex: "readonly",
         getStashes: "readonly",
         setStashes: "readonly",
         getSettings: "readonly",
@@ -27,6 +31,14 @@ export default defineConfig([
     files: ["storage.js"],
     rules: {
       "no-unused-vars": "off",
+    },
+  },
+  {
+    files: ["tests/**/*.js"],
+    languageOptions: {
+      globals: {
+        ...globals.node,
+      },
     },
   },
 ]);

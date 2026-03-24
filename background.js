@@ -18,14 +18,16 @@ function makeItemId() {
  * buildStashItem
  */
 function buildStashItem(tab, wakeAt) {
+  const restoreContext = buildStashRestoreContext(tab);
+
   return {
     id: makeItemId(),
     url: tab.url,
     title: tab.title ?? tab.url,
     createdAt: Date.now(),
     wakeAt,
-    originalWindowId: tab.windowId ?? null,
-    originalTabIndex: Number.isInteger(tab.index) ? tab.index : null,
+    originalWindowId: restoreContext.originalWindowId,
+    originalTabIndex: restoreContext.originalTabIndex,
     cookieStoreId: tab.cookieStoreId ?? null,
     status: "scheduled",
     restoredTabId: null,
@@ -46,10 +48,12 @@ async function createRestoreAlarm(stashItem) {
 }
 
 async function getTargetWindowId(stashItem) {
+  const existingWindowIds = [];
+
   if (stashItem.originalWindowId !== null) {
     try {
       await browser.windows.get(stashItem.originalWindowId);
-      return stashItem.originalWindowId;
+      existingWindowIds.push(stashItem.originalWindowId);
     } catch (error) {
       console.warn(
         "Original window is no longer available; falling back to another window.",
@@ -60,21 +64,32 @@ async function getTargetWindowId(stashItem) {
 
   try {
     const window = await browser.windows.getLastFocused();
-    return window?.id ?? null;
+    return chooseRestoreWindowId({
+      originalWindowId: stashItem.originalWindowId,
+      existingWindowIds,
+      lastFocusedWindowId: window?.id ?? null,
+    });
   } catch (error) {
     console.warn("Could not determine a fallback window for restore.", error);
-    return null;
+    return chooseRestoreWindowId({
+      originalWindowId: stashItem.originalWindowId,
+      existingWindowIds,
+      lastFocusedWindowId: null,
+    });
   }
 }
 
 async function getRestoreIndex(windowId, originalTabIndex) {
-  if (windowId === null || originalTabIndex === null) {
+  if (windowId === null) {
     return null;
   }
 
   try {
     const tabs = await browser.tabs.query({ windowId });
-    return Math.min(originalTabIndex, tabs.length);
+    return chooseRestoreTabIndex({
+      originalTabIndex,
+      tabCount: tabs.length,
+    });
   } catch (error) {
     console.warn("Could not determine restore tab index; appending instead.", error);
     return null;

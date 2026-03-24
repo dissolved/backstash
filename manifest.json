@@ -5,7 +5,7 @@
   "description": "Minimal proof of concept: close current tab and reopen it later.",
   "permissions": ["tabs", "storage", "alarms", "notifications", "cookies"],
   "background": {
-    "scripts": ["storage.js", "background.js"]
+    "scripts": ["storage.js", "restore-logic.js", "background.js"]
   },
   "action": {
     "default_title": "Stash tab"

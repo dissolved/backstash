@@ -18,6 +18,7 @@ Unlike tab suspension tools, Backstash removes tabs entirely and brings them bac
 ## 🚧 Status
 
 This project is in early development. See TODO.md
+Browser-specific verification lives in `TESTING.md`.
 
 
 ## 🧠 Concept
@@ -45,7 +46,13 @@ npm install
 ### Linting
 
 ```bash
-npx eslint
+npm run lint
+```
+
+### Automated tests
+
+```bash
+npm test
 ```
 
 ### Running the extension

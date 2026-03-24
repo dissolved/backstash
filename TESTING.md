@@ -1,0 +1,27 @@
+# Testing
+
+## Automated tests
+
+Run the unit test suite with:
+
+```bash
+npm test
+```
+
+These tests cover the pure restore-decision logic:
+- stash restore metadata extraction
+- restore window selection
+- restore tab index clamping
+
+## Browser verification
+
+Use this manual matrix when behavior changes touch Firefox extension APIs.
+
+| Scenario | Steps | Expected result |
+| --- | --- | --- |
+| Restore to original window | Stash a normal web tab in window A and wait for restore. | The tab restores into window A. |
+| Restore fallback window | Stash a normal web tab in window A, close window A before restore, then focus another Firefox window. | The tab restores into the focused fallback window. |
+| Restore tab position | Stash a tab from the middle of a window with multiple tabs. | The restored tab returns at the same approximate index, or at the end if the window now has fewer tabs. |
+| Preserve container | Stash a tab inside a Firefox Multi-Account Containers tab and wait for restore. | The restored tab keeps the original `cookieStoreId`. |
+| Container fallback | Restore a stashed container tab in a situation where the original container cannot be reused. | The restore retries without `cookieStoreId` instead of failing outright. |
+| Unsupported URL rejection | Try to stash an `about:` or other internal tab. | Backstash rejects the stash cleanly and does not schedule a restore. |
