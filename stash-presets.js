@@ -3,6 +3,10 @@ const SHARED_DEFAULT_STASH_PRESET_MINUTES =
     ? require("./constants.js").DEFAULT_STASH_PRESET_MINUTES
     : globalThis.BackstashConstants.DEFAULT_STASH_PRESET_MINUTES;
 
+function isValidDurationMinutes(minutes) {
+  return Number.isInteger(minutes) && minutes > 0;
+}
+
 function normalizeStashPresetMinutes(presets) {
   if (!Array.isArray(presets)) {
     return [...SHARED_DEFAULT_STASH_PRESET_MINUTES];
@@ -11,11 +15,7 @@ function normalizeStashPresetMinutes(presets) {
   const normalized = [];
 
   for (const preset of presets) {
-    if (
-      !Number.isInteger(preset) ||
-      preset <= 0 ||
-      normalized.includes(preset)
-    ) {
+    if (!isValidDurationMinutes(preset) || normalized.includes(preset)) {
       continue;
     }
 
@@ -53,16 +53,13 @@ function getCommandStashPresetMinutes(command, settings = {}) {
 }
 
 function getRepeatLastStashMinutes(state = {}) {
-  const minutes = state.lastStashPresetMinutes;
-
-  if (!Number.isInteger(minutes) || minutes <= 0) {
-    return null;
-  }
-
-  return minutes;
+  return isValidDurationMinutes(state.lastStashPresetMinutes)
+    ? state.lastStashPresetMinutes
+    : null;
 }
 
 globalThis.BackstashPresets = {
+  isValidDurationMinutes,
   getDefaultStashPresetMinutes,
   getCommandStashPresetMinutes,
   getRepeatLastStashMinutes,
@@ -71,6 +68,7 @@ globalThis.BackstashPresets = {
 if (typeof module !== "undefined" && module.exports) {
   module.exports = {
     DEFAULT_STASH_PRESET_MINUTES: SHARED_DEFAULT_STASH_PRESET_MINUTES,
+    isValidDurationMinutes,
     normalizeStashPresetMinutes,
     getDefaultStashPresetMinutes,
     getCommandStashPresetMinutes,

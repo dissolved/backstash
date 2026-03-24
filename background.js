@@ -99,9 +99,14 @@ async function getRestoreIndex(windowId, originalTabIndex) {
 }
 
 /**
- * Stash the currently active tab for provided minutes.
+ * Stash the currently active tab for the provided duration in minutes.
  */
 async function stashActiveTab(minutes) {
+  if (!BackstashPresets.isValidDurationMinutes(minutes)) {
+    console.warn("Invalid stash duration; expected a positive whole number of minutes.");
+    return;
+  }
+
   const tabs = await browser.tabs.query({
     active: true,
     currentWindow: true,

@@ -3,11 +3,24 @@ const assert = require("node:assert/strict");
 
 const {
   DEFAULT_STASH_PRESET_MINUTES,
+  isValidDurationMinutes,
   normalizeStashPresetMinutes,
   getDefaultStashPresetMinutes,
   getCommandStashPresetMinutes,
   getRepeatLastStashMinutes,
 } = require("../stash-presets.js");
+
+test("isValidDurationMinutes accepts positive whole minutes", () => {
+  assert.equal(isValidDurationMinutes(1), true);
+  assert.equal(isValidDurationMinutes(1440), true);
+});
+
+test("isValidDurationMinutes rejects invalid minute values", () => {
+  assert.equal(isValidDurationMinutes(0), false);
+  assert.equal(isValidDurationMinutes(-5), false);
+  assert.equal(isValidDurationMinutes(30.5), false);
+  assert.equal(isValidDurationMinutes("60"), false);
+});
 
 test("normalizeStashPresetMinutes falls back to defaults", () => {
   assert.deepEqual(
