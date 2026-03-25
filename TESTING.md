@@ -24,6 +24,8 @@ Use this manual matrix when behavior changes touch Firefox extension APIs.
 | Restore tab position | Stash a tab from the middle of a window with multiple tabs. | The restored tab returns at the same approximate index, or at the end if the window now has fewer tabs. |
 | Preserve container | Stash a tab inside a Firefox Multi-Account Containers tab and wait for restore. | The restored tab keeps the original `cookieStoreId`. |
 | Container fallback | Restore a stashed container tab in a situation where the original container cannot be reused. | The restore retries without `cookieStoreId` instead of failing outright. |
+| Preserve tab group | Stash a tab that belongs to a Firefox tab group and let it restore while that same group still exists. | The restored tab rejoins the original tab group. |
+| Missing tab group fallback | Stash a grouped tab, then remove the original tab group before restore. | The restored tab comes back ungrouped, while still using the normal window/index fallback behavior. |
 | Unsupported URL rejection | Try to stash an `about:` or other internal tab. | Backstash rejects the stash cleanly and does not schedule a restore. |
 | Popup stash flow | Open the toolbar popup or the keyboard overlay command, enter a duration such as `15`, `15m`, `2h`, or `3d`, and submit. | Backstash closes the popup and schedules the tab with the parsed minute duration. |
 | Popup invalid decimal | Open the popup, enter a decimal such as `2.3`, and submit. | Backstash keeps the popup open and shows an error explaining the supported duration formats. |

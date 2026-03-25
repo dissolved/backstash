@@ -27,6 +27,7 @@ function buildStashItem(tab, wakeAt) {
     wakeAt,
     originalWindowId: restoreContext.originalWindowId,
     originalTabIndex: restoreContext.originalTabIndex,
+    originalGroupId: Number.isInteger(tab.groupId) ? tab.groupId : null,
     cookieStoreId: tab.cookieStoreId ?? null,
     status: "scheduled",
     restoredTabId: null,
@@ -202,9 +203,38 @@ async function createRestoredTab(stashItem) {
   }
 }
 
+async function restoreTabGroupMembership(stashItem, restoredTab) {
+  if (
+    !browser.tabGroups ||
+    !browser.tabs.group ||
+    !Number.isInteger(stashItem.originalGroupId) ||
+    stashItem.originalGroupId === browser.tabGroups.TAB_GROUP_ID_NONE
+  ) {
+    return;
+  }
+
+  try {
+    const tabGroup = await browser.tabGroups.get(stashItem.originalGroupId);
+    if (tabGroup.windowId !== restoredTab.windowId) {
+      return;
+    }
+
+    await browser.tabs.group({
+      groupId: stashItem.originalGroupId,
+      tabIds: restoredTab.id,
+    });
+  } catch (error) {
+    console.warn(
+      "Original tab group is unavailable; restored tab will remain ungrouped.",
+      error,
+    );
+  }
+}
+
 async function restoreStashItem(stashItem) {
   try {
     const restoredTab = await createRestoredTab(stashItem);
+    await restoreTabGroupMembership(stashItem, restoredTab);
     const notificationId = await notifyStashRestored(stashItem);
     await clearRestoreAlarm(stashItem.id);
 

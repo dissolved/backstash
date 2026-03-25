@@ -44,6 +44,10 @@
 - Investigate whether Firefox exposes enough tab-group APIs to:
   - detect a tab's group when stashed
   - recreate or reattach to that group when restored
+- First conservative pass:
+  - store `groupId`
+  - restore into the original group only if that exact group still resolves
+  - otherwise leave the restored tab ungrouped
 - If full group restore is not possible, document the limitation and preserve other context.
 - Watch for API changes because Firefox tab groups are relatively new.
 
