@@ -27,6 +27,17 @@
         <p class="helper-text">Enter <code>15</code>, <code>15m</code>, <code>2h</code>, or <code>3d</code>.</p>
         <p id="status-message" class="status-message" aria-live="polite"></p>
       </form>
+      <section class="stashes-panel" aria-labelledby="stashes-heading">
+        <div class="panel-header">
+          <div>
+            <p class="eyebrow panel-eyebrow">Scheduled</p>
+            <h2 id="stashes-heading">Current stashes</h2>
+          </div>
+          <button id="restore-all-button" type="button" class="secondary-button">Restore all</button>
+        </div>
+        <p id="stashes-empty" class="helper-text">No tabs are currently stashed.</p>
+        <ul id="stashes-list" class="stashes-list"></ul>
+      </section>
     </main>
     <script src="constants.js"></script>
     <script src="stash-presets.js"></script>

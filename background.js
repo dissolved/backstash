@@ -288,6 +288,19 @@ async function restoreAllStashes() {
   };
 }
 
+async function listStashes() {
+  const stashes = await getStashes();
+  return stashes
+    .slice()
+    .sort((left, right) => left.wakeAt - right.wakeAt)
+    .map((stashItem) => ({
+      id: stashItem.id,
+      title: stashItem.title,
+      url: stashItem.url,
+      wakeAt: stashItem.wakeAt,
+    }));
+}
+
 /**
  * Notify tab has been restored
  */
@@ -343,11 +356,23 @@ browser.commands.onCommand.addListener(async (command) => {
 });
 
 browser.runtime.onMessage.addListener((message) => {
-  if (message?.type !== "stash-for-minutes") {
-    return false;
+  if (message?.type === "stash-for-minutes") {
+    return stashActiveTab(message.minutes);
   }
 
-  return stashActiveTab(message.minutes);
+  if (message?.type === "list-stashes") {
+    return listStashes();
+  }
+
+  if (message?.type === "restore-stash-now") {
+    return restoreStashById(message.stashId);
+  }
+
+  if (message?.type === "restore-all-stashes") {
+    return restoreAllStashes();
+  }
+
+  return false;
 });
 
 /**

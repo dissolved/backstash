@@ -27,3 +27,6 @@ Use this manual matrix when behavior changes touch Firefox extension APIs.
 | Unsupported URL rejection | Try to stash an `about:` or other internal tab. | Backstash rejects the stash cleanly and does not schedule a restore. |
 | Popup stash flow | Open the toolbar popup or the keyboard overlay command, enter a duration such as `15`, `15m`, `2h`, or `3d`, and submit. | Backstash closes the popup and schedules the tab with the parsed minute duration. |
 | Popup invalid decimal | Open the popup, enter a decimal such as `2.3`, and submit. | Backstash keeps the popup open and shows an error explaining the supported duration formats. |
+| Popup stash list | Open the popup while tabs are stashed. | The popup shows the current stashes with restore times in ascending scheduled order. |
+| Popup restore now | Click `Restore now` on one listed stash. | The selected stash restores immediately and disappears from the list. |
+| Popup restore all | Click `Restore all` in the popup. | All currently stashed tabs restore immediately and the list becomes empty. |
