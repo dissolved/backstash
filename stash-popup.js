@@ -45,12 +45,16 @@ function renderStashes(stashes) {
 
     content.append(title, meta);
 
-    const button = document.createElement("button");
-    button.type = "button";
-    button.className = "stash-restore-button";
-    button.textContent = "Restore now";
-    button.addEventListener("click", async () => {
-      button.disabled = true;
+    const actions = document.createElement("div");
+    actions.className = "stash-actions";
+
+    const restoreButton = document.createElement("button");
+    restoreButton.type = "button";
+    restoreButton.className = "stash-restore-button";
+    restoreButton.textContent = "Restore now";
+    restoreButton.addEventListener("click", async () => {
+      restoreButton.disabled = true;
+      cancelButton.disabled = true;
       setStatus("");
 
       try {
@@ -61,19 +65,53 @@ function renderStashes(stashes) {
 
         if (!response?.ok) {
           setStatus("Backstash could not restore that stash.");
-          button.disabled = false;
+          restoreButton.disabled = false;
+          cancelButton.disabled = false;
           return;
         }
 
         await refreshStashes();
       } catch (error) {
         setStatus("Backstash could not restore that stash.");
-        button.disabled = false;
+        restoreButton.disabled = false;
+        cancelButton.disabled = false;
         console.error("Failed to restore stash:", error);
       }
     });
 
-    item.append(content, button);
+    const cancelButton = document.createElement("button");
+    cancelButton.type = "button";
+    cancelButton.className = "secondary-button";
+    cancelButton.textContent = "Cancel";
+    cancelButton.addEventListener("click", async () => {
+      restoreButton.disabled = true;
+      cancelButton.disabled = true;
+      setStatus("");
+
+      try {
+        const response = await browser.runtime.sendMessage({
+          type: "cancel-stash",
+          stashId: stash.id,
+        });
+
+        if (!response?.ok) {
+          setStatus("Backstash could not cancel that stash.");
+          restoreButton.disabled = false;
+          cancelButton.disabled = false;
+          return;
+        }
+
+        await refreshStashes();
+      } catch (error) {
+        setStatus("Backstash could not cancel that stash.");
+        restoreButton.disabled = false;
+        cancelButton.disabled = false;
+        console.error("Failed to cancel stash:", error);
+      }
+    });
+
+    actions.append(restoreButton, cancelButton);
+    item.append(content, actions);
     stashesList.append(item);
   }
 }

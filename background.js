@@ -331,6 +331,25 @@ async function listStashes() {
     }));
 }
 
+async function cancelStashById(stashId) {
+  const stashes = await getStashes();
+  const stashExists = stashes.some((item) => item.id === stashId);
+
+  if (!stashExists) {
+    console.warn("No stashed item found for cancel:", stashId);
+    return {
+      ok: false,
+      error: "No stashed item found.",
+    };
+  }
+
+  const remaining = stashes.filter((item) => item.id !== stashId);
+  await setStashes(remaining);
+  await clearRestoreAlarm(stashId);
+
+  return { ok: true };
+}
+
 /**
  * Notify tab has been restored
  */
@@ -396,6 +415,10 @@ browser.runtime.onMessage.addListener((message) => {
 
   if (message?.type === "restore-stash-now") {
     return restoreStashById(message.stashId);
+  }
+
+  if (message?.type === "cancel-stash") {
+    return cancelStashById(message.stashId);
   }
 
   if (message?.type === "restore-all-stashes") {

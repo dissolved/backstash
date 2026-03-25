@@ -187,3 +187,9 @@ h2 {
   font-size: 12px;
   line-height: 1.4;
 }
+
+.stash-actions {
+  display: grid;
+  gap: 8px;
+  align-content: start;
+}
