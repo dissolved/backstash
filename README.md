@@ -66,11 +66,12 @@ npm test
 
 ## 🗺 Roadmap (high-level)
 
-* Restore to original window
-* Custom stash durations
-* Date/time-based stashing
+* Extension settings and scheduling polish
+* Alarm/storage reconciliation and reliability
+* Absolute date/time stashing
+* Richer stash management actions
 * Notification batching
-* Tab group support (if Firefox APIs allow)
+* Exploratory tab-group reconciliation after restart
 
 See `TODO.md` for details.
 
