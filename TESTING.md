@@ -33,3 +33,6 @@ Use this manual matrix when behavior changes touch Firefox extension APIs.
 | Popup restore now | Click `Restore now` on one listed stash. | The selected stash restores immediately and disappears from the list. |
 | Popup delete stash | Click `Delete` on one listed stash. | The selected stash is removed from the list and does not restore later. |
 | Popup restore all | Click `Restore all` in the popup. | All currently stashed tabs restore immediately and the list becomes empty. |
+| Startup reconciliation recreates alarms | Stash a tab, remove its restore alarm manually via extension debugging tools, and reload the extension. | Backstash recreates the missing alarm for the stored stash. |
+| Startup reconciliation removes orphan alarms | Create an orphan restore alarm without a matching stored stash, then reload the extension. | Backstash removes the orphan alarm during reconciliation. |
+| Startup reconciliation restores due stashes | Force a stored stash to have a past `wakeAt` value, then reload the extension. | Backstash restores it immediately during reconciliation instead of leaving it stranded. |

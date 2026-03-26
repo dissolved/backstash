@@ -33,15 +33,9 @@
 
 ### Stash management UI
 - Support actions such as:
-  - delete/cancel stash
   - edit scheduled restore time
 
 ## Medium priority
-
-### Context aware menu-item
-- Right clicking on a tab should have menu-items for stashing the tab
-- All presets should included as menu-items (submenu?) be selectable via the context menu
-- There should also be a context aware menuitem to bring up the overlay UI
 
 ### Same-tab-group restore after browser restart (Exploratory, since groupId doesn't persist across restarts)
 - Store group metadata (title, color, collapsed) when tab stashed

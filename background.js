@@ -51,6 +51,11 @@ async function clearRestoreAlarm(itemId) {
   await browser.alarms.clear(makeAlarmName(itemId));
 }
 
+async function getRestoreAlarms() {
+  const alarms = await browser.alarms.getAll();
+  return alarms.filter((alarm) => alarm.name.startsWith(RESTORE_EVENT_PREFIX));
+}
+
 async function getTargetWindowId(stashItem) {
   const existingWindowIds = [];
 
@@ -318,6 +323,50 @@ async function restoreAllStashes() {
   };
 }
 
+async function reconcileScheduledStashes() {
+  const stashes = await getStashes();
+  const alarms = await getRestoreAlarms();
+  const stashIds = new Set(stashes.map((stashItem) => stashItem.id));
+  const alarmNames = new Set(alarms.map((alarm) => alarm.name));
+
+  let recreatedAlarmCount = 0;
+  let clearedAlarmCount = 0;
+  let dueRestoreCount = 0;
+
+  for (const stashItem of stashes) {
+    if (stashItem.wakeAt <= Date.now()) {
+      dueRestoreCount += 1;
+      await restoreStashById(stashItem.id);
+      continue;
+    }
+
+    const alarmName = makeAlarmName(stashItem.id);
+    if (!alarmNames.has(alarmName)) {
+      await createRestoreAlarm(stashItem);
+      recreatedAlarmCount += 1;
+    }
+  }
+
+  for (const alarm of alarms) {
+    const stashId = alarm.name.slice(RESTORE_EVENT_PREFIX.length);
+    if (stashIds.has(stashId)) {
+      continue;
+    }
+
+    await browser.alarms.clear(alarm.name);
+    clearedAlarmCount += 1;
+  }
+
+  console.log(
+    "Startup reconciliation complete:",
+    JSON.stringify({
+      recreatedAlarmCount,
+      clearedAlarmCount,
+      dueRestoreCount,
+    }),
+  );
+}
+
 async function listStashes() {
   const stashes = await getStashes();
   return stashes
@@ -426,6 +475,16 @@ browser.runtime.onMessage.addListener((message) => {
   }
 
   return false;
+});
+
+browser.runtime.onStartup.addListener(() => {
+  reconcileScheduledStashes().catch((error) => {
+    console.error("Failed during startup reconciliation:", error);
+  });
+});
+
+reconcileScheduledStashes().catch((error) => {
+  console.error("Failed during extension load reconciliation:", error);
 });
 
 /**
