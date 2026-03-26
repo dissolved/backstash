@@ -1,13 +1,71 @@
 :root {
   color-scheme: light;
-  --ink: #15202b;
-  --muted: #5e6c78;
-  --paper: linear-gradient(180deg, #fffdf8 0%, #f4efe4 100%);
+  --ink: #111827;
+  --muted: #667085;
+  --paper: linear-gradient(180deg, #fbfcfe 0%, #f3f6fb 100%);
   --accent: #0f766e;
   --accent-strong: #115e59;
-  --border: rgba(21, 32, 43, 0.14);
-  --error: #b42318;
-  --shadow: 0 18px 40px rgba(21, 32, 43, 0.14);
+  --border: rgba(17, 24, 39, 0.12);
+  --error: #c2414c;
+  --shadow: 0 10px 24px rgba(15, 23, 42, 0.08);
+
+  --bg-tint: #e8eef6;
+  --bg-tint-strong: #dbe6f2;
+  --surface: rgba(255, 255, 255, 0.94);
+  --surface-strong: #ffffff;
+  --surface-subtle: #f8fafc;
+  --surface-muted: #eef2f7;
+  --surface-hover: #f3f7fb;
+  --surface-selected: #ecfdfb;
+
+  --text-primary: var(--ink);
+  --text-secondary: #475467;
+  --text-tertiary: var(--muted);
+  --text-on-accent: #ffffff;
+  --text-danger: var(--error);
+
+  --border-subtle: rgba(17, 24, 39, 0.08);
+  --border-strong: rgba(17, 24, 39, 0.18);
+  --divider: rgba(17, 24, 39, 0.1);
+
+  --accent-soft: #d8f3f0;
+  --accent-soft-strong: #c2ebe6;
+  --accent-contrast: #ffffff;
+
+  --error-soft: #fdecef;
+  --error-soft-strong: #f9d7dc;
+
+  --input-bg: rgba(255, 255, 255, 0.96);
+  --input-bg-focus: #ffffff;
+  --input-placeholder: #98a2b3;
+
+  --button-primary-bg: linear-gradient(180deg, var(--accent) 0%, var(--accent-strong) 100%);
+  --button-primary-bg-hover: linear-gradient(180deg, #0d6b64 0%, #0f5753 100%);
+  --button-primary-text: var(--text-on-accent);
+
+  --button-secondary-bg: rgba(255, 255, 255, 0.92);
+  --button-secondary-bg-hover: #f3f7fb;
+  --button-secondary-text: var(--text-primary);
+  --button-secondary-border: var(--border);
+
+  --button-danger-bg: #ffffff;
+  --button-danger-bg-hover: #fff5f6;
+  --button-danger-text: var(--error);
+  --button-danger-border: rgba(194, 65, 76, 0.24);
+
+  --card-bg: rgba(255, 255, 255, 0.9);
+  --card-bg-hover: #ffffff;
+  --card-border: var(--border);
+  --card-shadow: 0 6px 18px rgba(15, 23, 42, 0.06);
+
+  --focus-outline: color-mix(in srgb, var(--accent) 60%, white);
+  --focus-ring: 0 0 0 3px rgba(15, 118, 110, 0.18);
+
+  --radius-control: 14px;
+  --radius-card: 16px;
+  --radius-pill: 999px;
+
+  --overlay-glow: radial-gradient(circle at top left, var(--bg-tint-strong) 0%, transparent 38%);
 }
 
 * {
@@ -22,15 +80,14 @@ body {
     Avenir,
     "Segoe UI",
     sans-serif;
-  color: var(--ink);
-  background: radial-gradient(circle at top left, #f6d8ad 0%, transparent 40%),
-    var(--paper);
+  color: var(--text-primary);
+  background: var(--overlay-glow), var(--paper);
 }
 
 .popup-shell {
-  padding: 18px;
+  padding: 14px;
   display: grid;
-  gap: 18px;
+  gap: 14px;
 }
 
 .eyebrow {
@@ -43,8 +100,8 @@ body {
 }
 
 h1 {
-  margin: 0 0 16px;
-  font-size: 24px;
+  margin: 0 0 12px;
+  font-size: 22px;
   line-height: 1.05;
 }
 
@@ -56,7 +113,7 @@ h2 {
 
 .stash-form {
   display: grid;
-  gap: 10px;
+  gap: 8px;
 }
 
 .field-label {
@@ -64,7 +121,7 @@ h2 {
   font-weight: 700;
   letter-spacing: 0.08em;
   text-transform: uppercase;
-  color: var(--muted);
+  color: var(--text-tertiary);
 }
 
 .input-row {
@@ -76,50 +133,79 @@ h2 {
 .minutes-input,
 .submit-button,
 .secondary-button,
-.stash-restore-button {
-  border-radius: 14px;
+.stash-action-link {
+  border-radius: var(--radius-control);
   border: 1px solid var(--border);
   box-shadow: var(--shadow);
 }
 
 .minutes-input {
-  padding: 14px 16px;
+  min-height: 44px;
+  padding: 10px 12px;
   font: inherit;
-  font-size: 28px;
+  font-size: 20px;
   font-weight: 700;
-  background: rgba(255, 255, 255, 0.88);
-  color: var(--ink);
+  background: var(--input-bg);
+  color: var(--text-primary);
+}
+
+.minutes-input::placeholder {
+  color: var(--input-placeholder);
 }
 
 .minutes-input:focus {
-  outline: 2px solid color-mix(in srgb, var(--accent) 55%, white);
+  outline: 2px solid var(--focus-outline);
   outline-offset: 2px;
+  box-shadow: var(--focus-ring);
 }
 
 .submit-button {
-  padding: 0 18px;
+  min-height: 44px;
+  padding: 0 14px;
   font: inherit;
+  font-size: 14px;
   font-weight: 700;
-  color: white;
-  background: linear-gradient(180deg, var(--accent) 0%, var(--accent-strong) 100%);
+  color: var(--button-primary-text);
+  background: var(--button-primary-bg);
   cursor: pointer;
 }
 
 .submit-button:disabled,
 .secondary-button:disabled,
-.stash-restore-button:disabled {
+.stash-action-link:disabled {
   cursor: wait;
   opacity: 0.8;
 }
 
-.secondary-button,
-.stash-restore-button {
-  padding: 10px 14px;
+.secondary-button {
+  padding: 0;
+  min-height: auto;
+  border: 0;
+  box-shadow: none;
   font: inherit;
+  font-size: 12px;
   font-weight: 700;
-  color: var(--ink);
-  background: rgba(255, 255, 255, 0.88);
+  color: var(--text-secondary);
+  background: transparent;
   cursor: pointer;
+  text-decoration: none;
+}
+
+.stash-action-link {
+  padding: 0;
+  border: 0;
+  box-shadow: none;
+  background: transparent;
+  color: var(--text-secondary);
+  font: inherit;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  text-decoration: none;
+}
+
+.stash-action-link[data-tone="danger"] {
+  color: var(--button-danger-text);
 }
 
 .helper-text,
@@ -130,18 +216,18 @@ h2 {
 }
 
 .helper-text {
-  color: var(--muted);
+  color: var(--text-tertiary);
 }
 
 .status-message {
   min-height: 18px;
-  color: var(--error);
+  color: var(--text-danger);
 }
 
 .stashes-panel {
   display: grid;
-  gap: 12px;
-  padding-top: 4px;
+  gap: 10px;
+  padding-top: 2px;
 }
 
 .panel-header {
@@ -157,7 +243,7 @@ h2 {
 
 .stashes-list {
   display: grid;
-  gap: 10px;
+  gap: 6px;
   margin: 0;
   padding: 0;
   list-style: none;
@@ -165,31 +251,63 @@ h2 {
 
 .stash-item {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-  gap: 10px;
-  padding: 12px;
-  border: 1px solid var(--border);
-  border-radius: 16px;
-  background: rgba(255, 255, 255, 0.72);
-  box-shadow: var(--shadow);
+  gap: 4px;
+  padding: 9px 11px;
+  border: 1px solid var(--card-border);
+  border-radius: var(--radius-card);
+  background: var(--card-bg);
+  box-shadow: var(--card-shadow);
 }
 
 .stash-title {
-  margin: 0 0 4px;
+  margin: 0;
   font-size: 14px;
   font-weight: 700;
-  line-height: 1.3;
+  line-height: 1.25;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .stash-meta {
   margin: 0;
-  color: var(--muted);
+  color: var(--text-tertiary);
   font-size: 12px;
-  line-height: 1.4;
+  line-height: 1.3;
 }
 
 .stash-actions {
+  display: inline-flex;
+  gap: 6px;
+  align-items: center;
+  justify-self: end;
+  white-space: nowrap;
+}
+
+.stash-footer {
   display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
   gap: 8px;
-  align-content: start;
+  align-items: baseline;
+}
+
+.stash-action-separator {
+  color: var(--text-tertiary);
+  font-size: 12px;
+}
+
+.submit-button:hover:not(:disabled) {
+  background: var(--button-primary-bg-hover);
+}
+
+.secondary-button:hover:not(:disabled) {
+  text-decoration: underline;
+}
+
+.stash-action-link:hover:not(:disabled) {
+  text-decoration: underline;
+}
+
+.stash-item:hover {
+  background: var(--card-bg-hover);
 }

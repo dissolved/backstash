@@ -38,20 +38,22 @@ function renderStashes(stashes) {
     const title = document.createElement("p");
     title.className = "stash-title";
     title.textContent = stash.title || stash.url;
+    title.title = stash.title || stash.url;
 
     const meta = document.createElement("p");
     meta.className = "stash-meta";
     meta.textContent = `Restores ${formatWakeAt(stash.wakeAt)}`;
 
-    content.append(title, meta);
+    const footer = document.createElement("div");
+    footer.className = "stash-footer";
 
     const actions = document.createElement("div");
     actions.className = "stash-actions";
 
     const restoreButton = document.createElement("button");
     restoreButton.type = "button";
-    restoreButton.className = "stash-restore-button";
-    restoreButton.textContent = "Restore now";
+    restoreButton.className = "stash-action-link";
+    restoreButton.textContent = "Restore";
     restoreButton.addEventListener("click", async () => {
       restoreButton.disabled = true;
       cancelButton.disabled = true;
@@ -81,8 +83,9 @@ function renderStashes(stashes) {
 
     const cancelButton = document.createElement("button");
     cancelButton.type = "button";
-    cancelButton.className = "secondary-button";
-    cancelButton.textContent = "Cancel";
+    cancelButton.className = "stash-action-link";
+    cancelButton.dataset.tone = "danger";
+    cancelButton.textContent = "Delete";
     cancelButton.addEventListener("click", async () => {
       restoreButton.disabled = true;
       cancelButton.disabled = true;
@@ -110,8 +113,14 @@ function renderStashes(stashes) {
       }
     });
 
-    actions.append(restoreButton, cancelButton);
-    item.append(content, actions);
+    const separator = document.createElement("span");
+    separator.className = "stash-action-separator";
+    separator.textContent = "|";
+
+    actions.append(restoreButton, separator, cancelButton);
+    footer.append(meta, actions);
+    content.append(title, footer);
+    item.append(content);
     stashesList.append(item);
   }
 }

@@ -70,5 +70,9 @@
 - Investigate whether Firefox exposes enough control to restore tabs in an unloaded/discarded state to conserve resources.
 - Determine whether unloaded restore would preserve the user expectations around restore timing and visibility.
 
+### Centered command palette / overlay (Exploratory)
+- Investigate whether Backstash should eventually offer an injected in-page command palette or other centered overlay experience, since the browser action popup cannot be positioned arbitrarily within the browser window.
+- Compare this against keeping the current popup for toolbar use and reserving a centered overlay for keyboard-first workflows only.
+
 ### Fractional minute durations
 - Low priority: support fractional minute durations.

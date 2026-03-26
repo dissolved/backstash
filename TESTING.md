@@ -31,5 +31,5 @@ Use this manual matrix when behavior changes touch Firefox extension APIs.
 | Popup invalid decimal | Open the popup, enter a decimal such as `2.3`, and submit. | Backstash keeps the popup open and shows an error explaining the supported duration formats. |
 | Popup stash list | Open the popup while tabs are stashed. | The popup shows the current stashes with restore times in ascending scheduled order. |
 | Popup restore now | Click `Restore now` on one listed stash. | The selected stash restores immediately and disappears from the list. |
-| Popup cancel stash | Click `Cancel` on one listed stash. | The selected stash is removed from the list and does not restore later. |
+| Popup delete stash | Click `Delete` on one listed stash. | The selected stash is removed from the list and does not restore later. |
 | Popup restore all | Click `Restore all` in the popup. | All currently stashed tabs restore immediately and the list becomes empty. |
