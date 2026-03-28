@@ -1,4 +1,5 @@
 const RESTORE_EVENT_PREFIX = "restore-stash:";
+const restoreOperations = new Map();
 /**
  * Build a unique alarm name for one stashed tab.
  */
@@ -263,10 +264,7 @@ async function restoreStashItem(stashItem) {
   }
 }
 
-/**
- * Restore a stashed tab when its alarm fires.
- */
-async function restoreStashById(stashId) {
+async function performRestoreStashById(stashId) {
   const stashes = await getStashes();
   const stashItem = stashes.find((item) => item.id === stashId);
 
@@ -284,6 +282,22 @@ async function restoreStashById(stashId) {
   await setStashes(remaining);
 
   return result;
+}
+
+/**
+ * Restore a stashed tab when its alarm fires.
+ */
+async function restoreStashById(stashId) {
+  const existingRestore = restoreOperations.get(stashId);
+  if (existingRestore) {
+    return existingRestore;
+  }
+
+  const restorePromise = performRestoreStashById(stashId).finally(() => {
+    restoreOperations.delete(stashId);
+  });
+  restoreOperations.set(stashId, restorePromise);
+  return restorePromise;
 }
 
 async function restoreAllStashes() {
@@ -505,3 +519,17 @@ browser.alarms.onAlarm.addListener(async (alarm) => {
 });
 
 console.log("Backstash background loaded.");
+
+if (typeof module !== "undefined") {
+  module.exports = {
+    makeAlarmName,
+    getRestoreAlarms,
+    restoreStashById,
+    reconcileScheduledStashes,
+    __testing: {
+      restoreOperations,
+      performRestoreStashById,
+      restoreStashItem,
+    },
+  };
+}
