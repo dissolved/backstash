@@ -19,6 +19,7 @@ Unlike tab suspension tools, Backstash removes tabs entirely and brings them bac
 
 This project is in early development. See TODO.md
 Browser-specific verification lives in `TESTING.md`.
+Automated Firefox checks run in a disposable profile with `npm run test:firefox` (requires Firefox and uv).
 
 
 ## 🧠 Concept
@@ -67,11 +68,12 @@ npm test
 ## 🗺 Roadmap (high-level)
 
 * Extension settings and scheduling polish
-* Alarm/storage reconciliation and reliability
+* Scheduling concurrency and restore retry reliability (startup reconciliation is implemented)
 * Absolute date/time stashing
 * Richer stash management actions
 * Notification batching
 * Exploratory tab-group reconciliation after restart
+* Generic external event subscriptions for integrations such as [Tabometer](https://github.com/dissolved/tabometer)
 
 See `TODO.md` for details.
 

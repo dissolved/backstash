@@ -1,11 +1,12 @@
 {
   "name": "backstash",
-  "version": "1.0.0",
+  "version": "0.2.0",
   "description": "",
   "main": "background.js",
   "scripts": {
     "lint": "npx eslint .",
-    "test": "node --test"
+    "test": "node --test tests/*.test.js",
+    "test:firefox": "uv run scripts/firefox-checks.py"
   },
   "repository": {
     "type": "git",
@@ -13,7 +14,7 @@
   },
   "keywords": [],
   "author": "",
-  "license": "ISC",
+  "license": "MIT",
   "type": "commonjs",
   "bugs": {
     "url": "https://github.com/dissolved/backstash/issues"

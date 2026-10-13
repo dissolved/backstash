@@ -2,10 +2,27 @@
 
 ## Near-term priorities
 
-### Alarm/storage housekeeping
-- Add startup reconciliation logic for cases where alarms and stored stashes drift apart.
-- Detect orphaned alarms or orphaned stored stashes.
-- Decide on behavior after browser restart, extension reload, or upgrade.
+### Scheduling reliability
+- Implemented: reconciliation on extension load and browser startup recreates missing alarms, removes orphaned restore alarms, and restores overdue stashes.
+- Implemented: concurrent individual restore requests for the same stash share one operation.
+- Remaining: coordinate restore-all, individual restores, cancellation, and storage writes so concurrent operations cannot duplicate restores or overwrite newer stashes.
+- Define automatic retry/backoff for failed restores; currently failed stashes remain stored for manual retry or later reconciliation.
+- Verify upgrade/schema migration behavior when the storage schema changes.
+
+### Automated Firefox coverage
+- Use the disposable-profile Marionette runner in `scripts/firefox-checks.py`, following Tabometer's approach; see `TESTING.md` for coverage and run results.
+- Run real browser restart checks with a compatible Developer Edition/Nightly installation.
+- Implemented: natural background suspension/message wake coverage without an attached background debugger.
+- Extend tests alongside features; reserve manual testing for OS sleep/wake, native shortcut/popup presentation, and usability/accessibility review.
+
+### External event subscriptions (future Tabometer integration)
+- Expose a generic, versioned external messaging API so other extensions can register/unregister as listeners. Backstash must not depend on or contain Tabometer-specific behavior.
+- Plan events for successful stash creation, restoration (including original/restored tab identifiers), cancellation, and future schedule changes, with stable stash IDs and timestamps.
+- Allow Tabometer to distinguish deliberately snoozed tabs from ordinary closes and correlate their later restoration.
+- Define subscription lifetime, reconnect behavior after restart/background suspension, and a snapshot/reconciliation mechanism for missed events; do not promise exactly-once delivery.
+- Validate sender extension identity and define user consent/access controls and minimal payloads. Avoid exposing URLs/titles unless explicitly needed and authorized.
+- Publish events only after the relevant state transition succeeds. Listener failures must not block stashing/restoring.
+- Test the protocol with a separate fixture extension, including absent/offline subscribers and reconnects. The listener API is planned, not implemented.
 
 ### Extension Settings
 - Add setting to allow choice between whether restored tabs should keep their original approximate tab position within the window or at the end of the current window.
