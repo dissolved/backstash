@@ -4,6 +4,11 @@
   "version": "0.2.0",
   "description": "Minimal proof of concept: close current tab and reopen it later.",
   "permissions": ["tabs", "storage", "alarms", "notifications", "cookies", "tabGroups"],
+  "icons": {
+    "48": "assets/icons/backstash-48.png",
+    "96": "assets/icons/backstash-96.png",
+    "128": "assets/icons/backstash-128.png"
+  },
   "background": {
     "scripts": [
       "constants.js",
@@ -15,6 +20,11 @@
   },
   "action": {
     "default_title": "Stash tab",
+    "default_icon": {
+      "16": "assets/icons/backstash-16.png",
+      "32": "assets/icons/backstash-32.png",
+      "64": "assets/icons/backstash-64.png"
+    },
     "default_popup": "stash-popup.html"
   },
   "browser_specific_settings": {

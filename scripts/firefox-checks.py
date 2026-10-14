@@ -28,8 +28,10 @@ def package(destination):
     manifest = json.loads((ROOT / "manifest.json").read_text())
     names = ["manifest.json", "stash-popup.html", "stash-popup.css", "stash-popup.js"]
     names += manifest["background"]["scripts"]
+    names += manifest.get("icons", {}).values()
+    names += manifest.get("action", {}).get("default_icon", {}).values()
     with zipfile.ZipFile(destination, "w", zipfile.ZIP_DEFLATED) as archive:
-        for name in names:
+        for name in dict.fromkeys(names):
             archive.write(ROOT / name, name)
         archive.write(ROOT / "tests/firefox/scenarios.js", "integration/scenarios.js")
 

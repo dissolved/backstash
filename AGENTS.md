@@ -24,6 +24,9 @@ history, and relevant code before proposing changes.
 - `restore-logic.js`: testable window-selection and tab-position helpers.
 - `stash-presets.js`: duration parsing, preset selection, and command helpers.
 - `stash-popup.html`, `stash-popup.css`, `stash-popup.js`: popup interface.
+- `assets/icons/`: user-selected source artwork, asset notes, and sized PNGs
+  for the extension listing and toolbar. Regenerate sized files from the source
+  when changing artwork; only manifest-referenced sizes belong in packages.
 - `tests/*.test.js`: Node tests for helpers and production scripts with isolated
   browser interfaces.
 - `scripts/firefox-checks.py` and `tests/firefox/scenarios.js`: disposable-profile
