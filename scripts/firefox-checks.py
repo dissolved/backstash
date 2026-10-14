@@ -26,14 +26,17 @@ ADDON_ID = "backstash@codedissolved.com"
 def package(destination):
     # Explicit allowlist: never package repository metadata, credentials or profiles.
     manifest = json.loads((ROOT / "manifest.json").read_text())
-    names = ["manifest.json", "stash-popup.html", "stash-popup.css", "stash-popup.js"]
+    names = ["stash-popup.html", "stash-popup.css", "stash-popup.js"]
     names += manifest["background"]["scripts"]
     names += manifest.get("icons", {}).values()
     names += manifest.get("action", {}).get("default_icon", {}).values()
+    manifest["background"]["scripts"].append("integration/stash-faults.js")
     with zipfile.ZipFile(destination, "w", zipfile.ZIP_DEFLATED) as archive:
+        archive.writestr("manifest.json", json.dumps(manifest))
         for name in dict.fromkeys(names):
             archive.write(ROOT / name, name)
         archive.write(ROOT / "tests/firefox/scenarios.js", "integration/scenarios.js")
+        archive.write(ROOT / "tests/firefox/stash-faults.js", "integration/stash-faults.js")
 
 
 def free_port():
@@ -142,9 +145,13 @@ def main():
             driver.set_pref('extensions.background.idle.timeout', 300000)
             scenario('verifyWake', [wake])
             print('PASS natural background suspension and message wake', flush=True)
-            for name in ['restoreContexts', 'containers', 'groups', 'popup', 'rejectedInputs', 'concurrency', 'retryScheduling']:
+            for name in ['restoreContexts', 'containers', 'groups', 'popup', 'rejectedInputs', 'concurrency', 'retryScheduling', 'stashFailures']:
                 scenario(name, [fixture_url])
                 print('PASS ' + name, flush=True)
+            pending_stash = scenario('prepareInterruptedStash', [fixture_url])
+            reload_extension(driver)
+            scenario('verifyInterruptedStash', [pending_stash])
+            print('PASS interrupted stash: review across extension reload without automatic reopening', flush=True)
             recovery = scenario('prepareRestoreRecovery', [fixture_url])
             reload_extension(driver)
             scenario('verifyRestoreRecovery', [recovery])

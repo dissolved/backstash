@@ -12,6 +12,7 @@ const DEFAULT_DATA = {
   },
   state: {
     lastStashPresetMinutes: null,
+    lastStashId: null,
   },
 };
 
@@ -55,9 +56,10 @@ async function getStashes() {
   return data.stashes;
 }
 
-async function setStashes(stashes) {
+async function setStashes(stashes, statePatch = null) {
   const data = await getData();
   data.stashes = stashes;
+  if (statePatch) data.state = { ...data.state, ...statePatch };
   await setData(data);
 }
 

@@ -8,7 +8,8 @@
 - Implemented: a shared mutation queue coordinates stash creation, repeat-last, restore-all, individual restores, cancellation, and reconciliation. Overlapping operations no longer write stale stash lists; queued stash requests retain their selected tab identity.
 - Implemented: restore progress is persisted before tab creation; confirmed reopened tabs are cleanup-only after storage/alarm failure or background reload. Unconfirmed interrupted attempts require review and an explicit retry instead of automatically reopening.
 - Implemented: known creation failures get three automatic retries with 1, 5, and 15 minute delays, persisted across background reloads. Exhausted stashes remain available for manual Restore, which starts a fresh cycle; confirmed completions and uncertain attempts keep their separate recovery paths.
-- Harden stash creation/source-closure failure recovery and verify process/power-loss behavior. Restore progress markers reduce duplicate risk but do not make Firefox API side effects and storage writes atomic; see `docs/restore-recovery.md`.
+- Implemented: stash preparation stays inactive until source closure is confirmed; known pre-close failures roll back, uncertain outcomes retain a saved copy for review, and confirmed closure/repeat-last metadata commit together. Live closure receipts can finish scheduling; see `docs/stash-recovery.md`.
+- Verify process/power-loss behavior. Stash and restore progress markers reduce duplicate risk but do not make Firefox API side effects and storage writes atomic.
 - Verify upgrade/schema migration behavior when the storage schema changes.
 
 ### Automated Firefox coverage

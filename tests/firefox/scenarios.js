@@ -210,6 +210,89 @@ export async function concurrency(url) {
   await browser.tabs.remove(tabs.filter(tab => [first.item.url, second.item.url].includes(tab.url)).map(tab => tab.id));
 }
 
+async function stashSource(url) {
+  const tab = await browser.tabs.create({ url, active: true });
+  await browser.windows.update(tab.windowId, { focused: true });
+  await waitFor(async () => {
+    const source = await browser.tabs.get(tab.id);
+    return source.url === url && source.status === 'complete';
+  }, 'stash failure fixture loaded');
+  return tab;
+}
+
+async function faultyStash(url, mode) {
+  const tab = await stashSource(url);
+  await send('test-stash-fault', { fault: { mode, url, tabId: tab.id } });
+  const result = await send('stash-for-minutes', { minutes: 10 });
+  return { tab, result };
+}
+
+export async function stashFailures(url) {
+  await reset();
+  const token = crypto.randomUUID();
+  const failedUrl = `${url}?source-close-failure=${token}`;
+  let live;
+  try {
+    const failed = await faultyStash(failedUrl, 'close');
+    live = failed.tab;
+    assert(!failed.result.ok && (await list()).length === 0, 'Close failure retained an active stash');
+    assert((await browser.tabs.get(live.id)).url === failedUrl, 'Close failure lost the source');
+    assert((await data()).state.lastStashPresetMinutes === null, 'Failed stash changed repeat-last');
+    assert((await browser.alarms.getAll()).length === 0, 'Close rollback retained alarm');
+    await browser.tabs.remove(live.id);
+    live = null;
+    const savedUrl = `${url}?stash-finalize-failure=${token}`;
+    const pending = await faultyStash(savedUrl, 'finalize');
+    assert(!pending.result.ok && pending.result.stashSaved, 'Finalization failure did not retain a saved copy');
+    assert(!(await browser.tabs.query({})).some(tab => tab.id === pending.tab.id), 'Confirmed source not closed');
+    assert((await data()).stashes[0].status === 'stashing', 'Pending intent not durable');
+    await window.refreshStashes();
+    const row = document.querySelector('.stash-item');
+    assert(row.querySelector('button').textContent === 'Finish scheduling', 'Live closure completion action missing');
+    await send('test-stash-fault');
+    row.querySelector('button').click();
+    await waitFor(() => document.querySelector('.stash-item button')?.textContent === 'Restore', 'finish scheduling popup action');
+    const saved = (await data()).stashes[0];
+    const state = (await data()).state;
+    assert(saved.status === 'scheduled' && state.lastStashPresetMinutes === 10 && state.lastStashId === saved.id, 'Finalization did not save state together');
+    assert(await browser.alarms.get(alarmName(saved.id)), 'Finalization lost restore alarm');
+    assert(!(await browser.tabs.query({})).some(tab => tab.url === savedUrl), 'Finalization prematurely restored the source');
+    await send('cancel-stash', { stashId: saved.id });
+  } finally {
+    await send('test-stash-fault');
+    if (live && (await browser.tabs.query({})).some(tab => tab.id === live.id)) await browser.tabs.remove(live.id);
+  }
+}
+
+export async function prepareInterruptedStash(url) {
+  await reset();
+  const target = `${url}?interrupted-stash=${crypto.randomUUID()}`;
+  try {
+    const pending = await faultyStash(target, 'finalize');
+    assert(!pending.result.ok && pending.result.stashSaved, 'Could not prepare interrupted stash');
+    const item = (await data()).stashes[0];
+    assert((await list())[0].status === 'stashed', 'Live closure receipt missing');
+    return item;
+  } finally { await send('test-stash-fault'); }
+}
+
+export async function verifyInterruptedStash(item) {
+  const items = await list();
+  assert(items.length === 1 && items[0].status === 'stashing', 'Reload incorrectly inferred source closure');
+  await waitFor(async () => !await browser.alarms.get(alarmName(item.id)), 'uncertain stash alarm cleared on reload');
+  assert(!(await browser.tabs.query({})).some(tab => tab.url === item.url), 'Uncertain stash restored automatically');
+  assert(!(await send('restore-all-stashes')).ok, 'Bulk restore bypassed stash review');
+  await window.refreshStashes();
+  const row = document.querySelector('.stash-item');
+  assert(row.querySelector('.stash-meta').textContent.includes('source tab may still be open'), 'Interrupted stash explanation missing');
+  assert(row.querySelector('button').textContent === 'Restore saved copy', 'Explicit copy recovery action missing');
+  row.querySelector('button').click();
+  await waitFor(() => document.querySelectorAll('.stash-item').length === 0, 'explicit stash copy recovery');
+  const restored = (await browser.tabs.query({})).filter(tab => tab.url === item.url);
+  assert(restored.length === 1, 'Explicit copy recovery duplicated or lost tab');
+  await browser.tabs.remove(restored[0].id);
+}
+
 export async function prepareRestoreRecovery(url) {
   await reset();
   const token = crypto.randomUUID();

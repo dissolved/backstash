@@ -59,7 +59,7 @@ async function harness() {
     send: (type, fields = {}) => listeners.message({ type, ...fields }),
     read: () => stored.backstash,
     selectTab(id) { activeTabId = id; },
-    seed(stashes, settings = {}) { stored = { backstash: { schemaVersion: 1, stashes, settings, state: {} } }; },
+    seed(stashes, settings = {}, state = {}) { stored = { backstash: { schemaVersion: 1, stashes, settings, state } }; },
     reconcile: () => vm.runInContext('reconcileScheduledStashes()', context),
     reload: loadBackground,
     now: () => now,
@@ -100,6 +100,275 @@ function pauseRestore(h) {
   };
   return { entered: entered.promise, release: release.resolve };
 }
+
+test('alarm preparation failure leaves the source open and preserves existing data and repeat-last', async () => {
+  const h = await harness();
+  h.seed([item('existing')], {}, { lastStashPresetMinutes: 5 });
+  h.browser.alarms.create = async () => { throw new Error('alarm unavailable'); };
+  assert(!(await h.send('stash-for-minutes', { minutes: 15 })).ok);
+  assert.deepEqual(h.read().stashes.map(stash => stash.id), ['existing']);
+  assert.equal(h.read().state.lastStashPresetMinutes, 5);
+  assert.equal(h.removed.length, 0);
+  assert.equal(h.alarms.size, 0);
+});
+
+test('failed rollback quarantines preparation instead of restoring an unclosed source', async () => {
+  const h = await harness();
+  h.seed([], {}, { lastStashPresetMinutes: 5 });
+  const set = h.browser.storage.local.set;
+  h.browser.storage.local.set = async value => {
+    if (value.backstash.stashes.length === 0) throw new Error('rollback failed');
+    return set(value);
+  };
+  h.browser.alarms.create = async () => { throw new Error('alarm unavailable'); };
+  const result = await h.send('stash-for-minutes', { minutes: 1 });
+  assert(!result.ok && result.stashSaved);
+  const saved = h.read().stashes[0];
+  assert.equal(saved.status, 'stashing');
+  assert.equal(h.read().state.lastStashPresetMinutes, 5);
+  h.advance(120_000);
+  await h.reload();
+  await h.fireAlarm(saved.id);
+  assert(!(await h.send('restore-all-stashes')).ok);
+  assert((await h.send('restore-stash-now', { stashId: saved.id })).requiresConfirmation);
+  assert.equal(h.created.length, 0);
+  assert.equal(h.removed.length, 0);
+  h.browser.storage.local.set = set;
+  assert((await h.send('cancel-stash', { stashId: saved.id })).ok);
+});
+
+test('a rejected tab removal with a still-live source rolls back the new stash', async () => {
+  const h = await harness();
+  h.seed([item('existing')], {}, { lastStashPresetMinutes: 5 });
+  h.browser.tabs.remove = async () => { throw new Error('cannot remove tab'); };
+  const result = await h.send('stash-for-minutes', { minutes: 15 });
+  assert(!result.ok);
+  assert.deepEqual(h.read().stashes.map(stash => stash.id), ['existing']);
+  assert.equal(h.read().state.lastStashPresetMinutes, 5);
+  assert.equal(h.alarms.size, 0);
+  assert.equal(h.created.length, 0);
+});
+
+test('uncertain removal retains a saved copy across reload for explicit recovery', async () => {
+  const h = await harness();
+  h.seed([]);
+  const remove = h.browser.tabs.remove;
+  h.browser.tabs.remove = async id => { await remove(id); throw new Error('closure response lost'); };
+  const result = await h.send('stash-for-minutes', { minutes: 1 });
+  assert(!result.ok && result.stashSaved);
+  const saved = h.read().stashes[0];
+  assert.equal(saved.status, 'stashing');
+  assert.equal(h.alarms.size, 0);
+  h.advance(120_000);
+  await h.reload();
+  await h.fireAlarm(saved.id);
+  assert((await h.send('restore-stash-now', { stashId: saved.id })).requiresConfirmation);
+  assert(!(await h.send('finish-stash', { stashId: saved.id })).ok, 'lost closure receipt cannot be inferred after reload');
+  assert.equal(h.created.length, 0);
+  assert((await h.send('restore-stash-now', { stashId: saved.id, confirmRestore: true })).ok);
+  assert.equal(h.created.length, 1);
+  assert.equal(h.created[0].url, saved.url);
+  assert.equal(h.read().stashes.length, 0);
+});
+
+test('failed closure commit retains a live completion receipt and atomically saves repeat-last later', async () => {
+  const h = await harness();
+  h.seed([], {}, { lastStashPresetMinutes: 5 });
+  const set = h.browser.storage.local.set;
+  h.browser.storage.local.set = async value => {
+    if (value.backstash.stashes.some(stash => stash.status === 'scheduled')) throw new Error('completion write failed');
+    return set(value);
+  };
+  const result = await h.send('stash-for-minutes', { minutes: 15 });
+  assert(!result.ok && result.stashSaved);
+  const saved = h.read().stashes[0];
+  assert.equal(saved.status, 'stashing');
+  assert.equal((await h.send('list-stashes'))[0].status, 'stashed');
+  assert.equal(h.read().state.lastStashPresetMinutes, 5);
+  assert.deepEqual(h.removed, [7]);
+  assert(!(await h.send('finish-stash', { stashId: saved.id })).ok);
+  assert.deepEqual(h.removed, [7], 'completion must not close another source tab');
+  h.browser.storage.local.set = set;
+  assert((await h.send('finish-stash', { stashId: saved.id })).ok);
+  assert.equal(h.read().stashes[0].status, 'scheduled');
+  assert.equal(h.read().state.lastStashPresetMinutes, 15);
+  assert.equal(h.created.length, 0);
+  h.advance(15 * 60_000);
+  await h.fireAlarm(saved.id);
+  assert.equal(h.created.length, 1);
+  assert.equal(h.read().stashes.length, 0);
+});
+
+test('loss of a live closure receipt requires review without automatic restoration', async () => {
+  const h = await harness();
+  const set = h.browser.storage.local.set;
+  h.browser.storage.local.set = async value => {
+    if (value.backstash.stashes.some(stash => stash.status === 'scheduled')) throw new Error('completion write failed');
+    return set(value);
+  };
+  await h.send('stash-for-minutes', { minutes: 1 });
+  const saved = h.read().stashes[0];
+  assert.equal((await h.send('list-stashes'))[0].status, 'stashed');
+  h.browser.storage.local.set = set;
+  h.advance(120_000);
+  await h.reload();
+  assert.equal((await h.send('list-stashes'))[0].status, 'stashing');
+  assert.equal(h.created.length, 0);
+  assert.equal(h.alarms.size, 0);
+  assert(!(await h.send('finish-stash', { stashId: saved.id })).ok);
+  assert((await h.send('restore-stash-now', { stashId: saved.id })).requiresConfirmation);
+});
+
+test('an alarm repair failure after committing closure preserves a normal scheduled stash', async () => {
+  const h = await harness();
+  const create = h.browser.alarms.create;
+  let calls = 0;
+  h.browser.alarms.create = async (...args) => {
+    if (++calls === 2) throw new Error('alarm confirmation failed');
+    return create(...args);
+  };
+  const result = await h.send('stash-for-minutes', { minutes: 15 });
+  assert(result.ok && result.alarmPending);
+  const saved = h.read().stashes[0];
+  assert.equal(saved.status, 'scheduled');
+  assert.equal(h.read().state.lastStashPresetMinutes, 15);
+  assert.deepEqual(h.removed, [7]);
+  h.alarms.clear();
+  h.browser.alarms.create = create;
+  await h.reload();
+  assert(h.alarms.has(`restore-stash:${saved.id}`));
+  assert.equal(h.created.length, 0);
+});
+
+test('source navigation during preparation prevents closing the changed tab', async () => {
+  const h = await harness();
+  h.seed([], {}, { lastStashPresetMinutes: 5 });
+  const create = h.browser.alarms.create;
+  h.browser.alarms.create = async (...args) => {
+    await create(...args);
+    h.browser.tabs.get = async id => ({ id, url: 'https://example.com/changed' });
+  };
+  assert(!(await h.send('stash-for-minutes', { minutes: 15 })).ok);
+  assert.equal(h.removed.length, 0);
+  assert.equal(h.read().stashes.length, 0);
+  assert.equal(h.read().state.lastStashPresetMinutes, 5);
+  assert.equal(h.alarms.size, 0);
+});
+
+test('an unavailable source before closure keeps a saved copy instead of discarding it', async () => {
+  const h = await harness();
+  const create = h.browser.alarms.create;
+  h.browser.alarms.create = async (...args) => {
+    await create(...args);
+    h.browser.tabs.get = async () => { throw new Error('source unavailable'); };
+  };
+  const result = await h.send('stash-for-minutes', { minutes: 15 });
+  assert(!result.ok && result.stashSaved);
+  assert.equal(h.read().stashes[0].status, 'stashing');
+  assert.equal(h.read().stashes[0].url, 'https://example.com');
+  assert.equal(h.removed.length, 0);
+  assert.equal(h.alarms.size, 0);
+});
+
+test('failed alarm cleanup and rollback still cannot auto-restore an unclosed source', async () => {
+  const h = await harness();
+  const set = h.browser.storage.local.set;
+  h.browser.storage.local.set = async value => {
+    if (value.backstash.stashes.length === 0) throw new Error('rollback failed');
+    return set(value);
+  };
+  h.browser.tabs.remove = async () => { throw new Error('removal failed'); };
+  h.browser.alarms.clear = async () => { throw new Error('alarm clear failed'); };
+  await h.send('stash-for-minutes', { minutes: 1 });
+  const saved = h.read().stashes[0];
+  h.advance(120_000);
+  await h.fireAlarm(saved.id);
+  await h.reload();
+  assert.equal(h.created.length, 0);
+  assert.equal(h.read().stashes[0].status, 'stashing');
+});
+
+test('a due alarm can finish a known closure before restoring exactly once', async () => {
+  const h = await harness();
+  const set = h.browser.storage.local.set;
+  h.browser.storage.local.set = async value => {
+    if (value.backstash.stashes.some(stash => stash.status === 'scheduled')) throw new Error('completion write failed');
+    return set(value);
+  };
+  const remove = h.browser.tabs.remove;
+  h.browser.tabs.remove = async id => { await remove(id); h.advance(120_000); };
+  await h.send('stash-for-minutes', { minutes: 1 });
+  const saved = h.read().stashes[0];
+  await h.fireAlarm(saved.id);
+  assert.equal(h.created.length, 0);
+  h.browser.storage.local.set = set;
+  await h.fireAlarm(saved.id);
+  assert.equal(h.created.length, 1);
+  assert.equal(h.read().stashes.length, 0);
+  assert.deepEqual(h.removed, [7]);
+});
+
+test('manual restore-all can finish a known stash closure before restoring it', async () => {
+  const h = await harness();
+  const set = h.browser.storage.local.set;
+  h.browser.storage.local.set = async value => {
+    if (value.backstash.stashes.some(stash => stash.status === 'scheduled')) throw new Error('completion write failed');
+    return set(value);
+  };
+  await h.send('stash-for-minutes', { minutes: 15 });
+  h.browser.storage.local.set = set;
+  const result = await h.send('restore-all-stashes');
+  assert.equal(result.restoredCount, 1);
+  assert.equal(h.created.length, 1);
+  assert.equal(h.read().stashes.length, 0);
+  assert.deepEqual(h.removed, [7]);
+});
+
+test('a lost finalization response cannot overwrite newer repeat-last state through a stale finish action', async () => {
+  const h = await harness();
+  const set = h.browser.storage.local.set;
+  let loseResponse = true;
+  h.browser.storage.local.set = async value => {
+    await set(value);
+    if (loseResponse && value.backstash.stashes.some(stash => stash.status === 'scheduled')) {
+      loseResponse = false;
+      throw new Error('response lost after write');
+    }
+  };
+  assert(!(await h.send('stash-for-minutes', { minutes: 15 })).ok);
+  const first = h.read().stashes[0];
+  assert.equal(first.status, 'scheduled');
+  assert.equal((await h.send('list-stashes'))[0].status, 'scheduled');
+  assert((await h.send('stash-for-minutes', { minutes: 20 })).ok);
+  assert((await h.send('finish-stash', { stashId: first.id })).ok);
+  assert.equal(h.read().state.lastStashPresetMinutes, 20);
+  const clear = h.browser.alarms.clear;
+  h.browser.alarms.clear = async () => { throw new Error('cleanup failed'); };
+  assert((await h.send('restore-stash-now', { stashId: first.id })).cleanupPending);
+  assert(!(await h.send('finish-stash', { stashId: first.id })).ok);
+  assert.equal(h.read().stashes.find(stash => stash.id === first.id).status, 'restored');
+  assert.equal(h.created.length, 1);
+  h.browser.alarms.clear = clear;
+});
+
+test('finishing an older pending stash preserves the preset of a newer completed stash', async () => {
+  const h = await harness();
+  const set = h.browser.storage.local.set;
+  let fail = true;
+  h.browser.storage.local.set = async value => {
+    if (fail && value.backstash.stashes.some(stash => stash.status === 'scheduled')) throw new Error('completion failed');
+    return set(value);
+  };
+  assert(!(await h.send('stash-for-minutes', { minutes: 15 })).ok);
+  const first = h.read().stashes[0];
+  fail = false;
+  assert((await h.send('stash-for-minutes', { minutes: 20 })).ok);
+  const latestId = h.read().state.lastStashId;
+  assert((await h.send('finish-stash', { stashId: first.id })).ok);
+  assert.equal(h.read().stashes.length, 2);
+  assert.equal(h.read().state.lastStashPresetMinutes, 20);
+  assert.equal(h.read().state.lastStashId, latestId);
+});
 
 test('known failures retry after 1, 5 and 15 minutes, then stop across alarms and reloads', async () => {
   const h = await harness();

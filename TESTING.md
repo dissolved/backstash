@@ -27,7 +27,7 @@ uv run scripts/firefox-checks.py --firefox /path/to/firefox --headed
 uv run scripts/firefox-checks.py --firefox '/Applications/Firefox Developer Edition.app/Contents/MacOS/firefox' --restart
 ```
 
-uv supplies the inline test-only dependency `marionette-driver==3.7.1`. Firefox is found on PATH or at its usual macOS location. The runner packages an explicit allowlist of unchanged production files plus a test-only scenario module. It never uses your everyday profile, browsing data or accounts. It removes the owned profile/package afterward, reports failures with a nonzero exit status, and prints recent Firefox logs on failure. The fixture server binds only to loopback. Firefox itself may make unrelated service requests; this suite does not assert zero browser network traffic.
+uv supplies the inline test-only dependency `marionette-driver==3.7.1`. Firefox is found on PATH or at its usual macOS location. The runner packages an explicit allowlist of unchanged production scripts/assets, a test-only scenario module, and stash fault hooks. Its generated test manifest loads those hooks; the checked-in production manifest is unchanged. It never uses your everyday profile, browsing data or accounts. It removes the owned profile/package afterward, reports failures with a nonzero exit status, and prints recent Firefox logs on failure. The fixture server binds only to loopback. Firefox itself may make unrelated service requests; this suite does not assert zero browser network traffic.
 
 The runner enables remote system access only in the test process. `--restart` requires a Firefox build that supports disabling signature enforcement, typically Developer Edition/Nightly; see [Mozilla's persistent/restart testing guidance](https://extensionworkshop.com/documentation/develop/testing-persistent-and-restart-features/). Default temporary installs cannot survive browser exit and explicitly skip restart. The harness uses Firefox internals for reload and lifecycle observation; compatibility with older Firefox builds is separate from the extension's minimum version. Current browser scenarios require tab-group support and fail clearly if it is absent.
 
@@ -47,6 +47,7 @@ The runner enables remote system access only in the test process. `--restart` re
 | Concurrent messages | Overlap cancel, individual/bulk restores, and a new stash; verify exactly one tab per restored stash, no cancelled tab, retained new stash/repeat-last state, and matching alarms |
 | Restore recovery | Seed completed/uncertain progress, test popup cleanup, reload the extension, then verify cleanup-only reconciliation, suppressed uncertain retries, bulk feedback, explicit retry, and dismissal without closing an open tab |
 | Bounded restore retries | Actual rejected tab creation schedules the first retry; seeded pending/exhausted/overdue retries survive reload with correct alarms and popup actions. Full runs also wait for a real one-minute retry after fixing the rejected fixture URL |
+| Stash preparation/closure recovery | Test-only API wrappers reject source removal or finalization writes. Verify rollback with source left open, atomic repeat-last commit through Finish scheduling, and explicit saved-copy recovery after actual extension reload |
 | Extension reload reconciliation | Actual add-on reload with missing/orphan alarms and an overdue stash; verify exactly one overdue tab |
 | Background lifecycle | Observe natural suspension from the parent process, then verify message wake preserves stash/state and recreates its missing alarm |
 | Scheduled restore | Real one-minute alarm and elapsed wall time; explicitly skipped with `--skip-alarm` |
@@ -65,6 +66,26 @@ Popup tests render the production popup page in a browser tab and suppress only 
 Do not repeat the automated matrix manually after a passing run unless diagnosing a browser/profile-specific issue. Extend the suite when adding behavior; retain manual checks only where automation does not establish the result.
 
 ## Recorded results
+
+### 2026-10-14 — Stash preparation and closure recovery
+
+- All 77 Node tests passed; ESLint and whitespace checks passed. Fourteen new
+  regression cases fail against the preceding implementation. They cover alarm
+  preparation, rollback and completion writes, source closure failures, navigation,
+  lost responses, background reload, and completion ordering. Finishing an older
+  stash cannot overwrite a newer stash's repeat-last duration.
+- Full headless macOS Firefox 158.0 runs passed, including the real one-minute
+  restore and retry alarms. A final quick run after the completion-order guards
+  passed all scenarios with both real alarm waits explicitly skipped.
+- Browser checks inject rejected source closure and completion writes, exercise
+  **Finish scheduling**, reload the actual extension to discard closure receipts,
+  and exercise **Restore saved copy** without automatic or bulk duplicates.
+  Fault hooks appear only in the generated test manifest. An archive check
+  verified the explicit file allowlist, unchanged production scripts, required
+  icons, and absence of fault hooks from the production manifest.
+- Browser restart was explicitly skipped. Injected API failures do not establish
+  recovery from physical disk/power loss or process interruption. OS sleep/wake
+  and native presentation/usability remain unverified.
 
 ### 2026-10-14 — Bounded automatic retries
 

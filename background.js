@@ -4,6 +4,10 @@ const restoreOperations = new Map();
 // Protect confirmed creations if persisting their completion record fails.
 // Durable "restoring" records cover uncertainty after this context disappears.
 const completedRestores = new Map();
+// Closure is known only in this live context until "scheduled" can be saved.
+const closedStashes = new Map();
+const stashOrders = new Map();
+let nextStashOrder = 0;
 let mutationQueue = Promise.resolve();
 
 // Serialize complete state transitions, including their tab/alarm side effects.
@@ -58,7 +62,7 @@ function buildStashItem(tab, wakeAt) {
     originalTabIndex: restoreContext.originalTabIndex,
     originalGroupId: Number.isInteger(tab.groupId) ? tab.groupId : null,
     cookieStoreId: tab.cookieStoreId ?? null,
-    status: "scheduled",
+    status: "stashing",
     restoredTabId: null,
     notificationId: null,
   };
@@ -189,21 +193,108 @@ async function performStashActiveTab(minutes, selectedTab) {
   const stashItem = buildStashItem(tab, wakeAt);
 
   const stashes = await getStashes();
-  stashes.push(stashItem);
-  await setStashes(stashes);
+  await setStashes([...stashes, stashItem]);
 
-  await updateState({
-    lastStashPresetMinutes: minutes,
-  });
+  try {
+    await createRestoreAlarm(stashItem);
+  } catch (error) {
+    console.warn("Stash preparation failed before tab closure:", error);
+    return abandonStash(stashes, stashItem, "Could not schedule this stash. The source tab was left open.");
+  }
 
-  await createRestoreAlarm(stashItem);
-  await browser.tabs.remove(tab.id);
+  let source;
+  try {
+    source = await browser.tabs.get(tab.id);
+  } catch {
+    await clearPendingStashAlarm(stashItem.id);
+    return { ok: false, stashSaved: true, error: "The source tab could not be checked. A saved copy was retained; check your tabs before restoring or deleting it." };
+  }
+  if (source.url !== tab.url) {
+    return abandonStash(stashes, stashItem, "The source tab navigated while stashing. It was left open.");
+  }
+
+  try {
+    await browser.tabs.remove(tab.id);
+  } catch (error) {
+    console.warn("Could not confirm source tab closure:", error);
+    try {
+      await browser.tabs.get(tab.id);
+    } catch {
+      await clearPendingStashAlarm(stashItem.id);
+      return { ok: false, stashSaved: true, error: "Tab closure could not be confirmed. A saved copy was retained; check your tabs before restoring or deleting it." };
+    }
+    return abandonStash(stashes, stashItem, "Could not close the source tab. It was left open.");
+  }
+
+  closedStashes.set(stashItem.id, minutes);
+  stashOrders.set(stashItem.id, ++nextStashOrder);
+  return finishStash([...stashes, stashItem], stashItem, minutes);
+}
+
+async function clearPendingStashAlarm(stashId) {
+  try {
+    await clearRestoreAlarm(stashId);
+  } catch (error) {
+    // A retained "stashing" record remains ineligible even if its alarm fires.
+    console.warn("Could not clear a pending stash alarm:", error);
+  }
+}
+
+async function abandonStash(previousStashes, stashItem, error) {
+  await clearPendingStashAlarm(stashItem.id);
+  try {
+    await setStashes(previousStashes);
+    return { ok: false, error };
+  } catch (cleanupError) {
+    console.warn("Could not remove an incomplete stash:", cleanupError);
+    return { ok: false, stashSaved: true, error: `${error} A saved copy remains in the stash list for review.` };
+  }
+}
+
+async function finishStash(stashes, stashItem, minutes) {
+  const scheduled = { ...stashItem, status: "scheduled" };
+  try {
+    // Commit closure and repeat-last metadata together, after confirmed removal.
+    // Completing an older pending stash must not replace a newer preset.
+    const state = await getState();
+    const updatePreset = stashOrders.get(stashItem.id) >= (stashOrders.get(state.lastStashId) ?? 0);
+    await setStashes(stashes.map(item => item.id === stashItem.id ? scheduled : item), updatePreset ? {
+      lastStashPresetMinutes: minutes, lastStashId: stashItem.id,
+    } : null);
+  } catch (error) {
+    console.warn("Source closed; stash finalization remains pending:", error);
+    return { ok: false, stashSaved: true, error: "Tab saved, but scheduling is incomplete. Choose Finish scheduling in the stash list." };
+  }
+  closedStashes.delete(stashItem.id);
+  try {
+    // Re-arm after the commit in case the first alarm fired during tab closure.
+    await createRestoreAlarm(scheduled);
+  } catch (error) {
+    console.warn("Tab saved; restore alarm could not be confirmed:", error);
+    return { ok: true, alarmPending: true, error: "Tab saved, but its restore alarm could not be confirmed. Restore it manually or reload Backstash to check the schedule." };
+  }
 
   console.log(
-    `Stashed tab "${stashItem.title}" until ${new Date(wakeAt).toLocaleTimeString()}`,
+    `Stashed tab "${stashItem.title}" until ${new Date(stashItem.wakeAt).toLocaleTimeString()}`,
   );
 
   return { ok: true };
+}
+
+async function finishStashById(stashId) {
+  return enqueueMutation(async () => {
+    const stashes = await getStashes();
+    const item = stashes.find(item => item.id === stashId);
+    if (item?.status === "scheduled") {
+      closedStashes.delete(stashId);
+      return { ok: true };
+    }
+    if (item?.status !== "stashing") closedStashes.delete(stashId);
+    if (!item || !closedStashes.has(stashId)) {
+      return { ok: false, error: "Stash completion cannot be confirmed. Check the saved entry before restoring or deleting it." };
+    }
+    return finishStash(stashes, item, closedStashes.get(stashId));
+  });
 }
 
 async function repeatLastStash() {
@@ -328,14 +419,30 @@ async function performRestoreStashById(stashId, { confirmRestore = false, automa
 
   if (!stashItem) {
     completedRestores.delete(stashId);
+    closedStashes.delete(stashId);
     console.warn("No stashed item found for ID:", stashId);
     return;
   }
+  if (stashItem.status !== "stashing") closedStashes.delete(stashId);
 
   const receipt = completedRestores.get(stashId) ?? (stashItem.status === "restored" ? {
     ok: true, restoredTabId: stashItem.restoredTabId, notificationId: null,
   } : null);
   if (receipt) return finishRestore(stashes, stashItem, receipt);
+
+  if (stashItem.status === "stashing") {
+    if (closedStashes.has(stashId)) {
+      const finished = await finishStash(stashes, stashItem, closedStashes.get(stashId));
+      if (!finished.ok) return finished;
+      return performRestoreStashById(stashId, { confirmRestore, automatic });
+    }
+    if (!confirmRestore || automatic) {
+      return {
+        ok: false, requiresConfirmation: true,
+        error: "Stashing was interrupted. The source tab may still be open; check your tabs before restoring the saved copy.",
+      };
+    }
+  }
 
   if (stashItem.status === "restoring" && (!confirmRestore || automatic)) {
     return {
@@ -491,6 +598,14 @@ async function performReconcileScheduledStashes() {
   let dueRestoreCount = 0;
 
   for (const stashItem of stashes) {
+    if (stashItem.status === "stashing") {
+      if (closedStashes.has(stashItem.id)) {
+        await performRestoreStashById(stashItem.id, { automatic: true });
+      } else {
+        await clearPendingStashAlarm(stashItem.id);
+      }
+      continue;
+    }
     if (stashItem.status === "restored" || completedRestores.has(stashItem.id)) {
       await performRestoreStashById(stashItem.id);
       continue;
@@ -562,7 +677,8 @@ async function listStashes() {
       title: stashItem.title,
       url: stashItem.url,
       wakeAt: stashItem.wakeAt,
-      status: completedRestores.has(stashItem.id) ? "restored" : (stashItem.status ?? "scheduled"),
+      status: completedRestores.has(stashItem.id) ? "restored"
+        : stashItem.status === "stashing" && closedStashes.has(stashItem.id) ? "stashed" : (stashItem.status ?? "scheduled"),
       nextRetryAt: getRestoreFailureCount(stashItem) > 0 ? getRestoreDueAt(stashItem) : null,
       retryExhausted: getRestoreFailureCount(stashItem) > 0 && getRestoreDueAt(stashItem) === null,
     }));
@@ -587,6 +703,7 @@ async function performCancelStashById(stashId) {
   const remaining = stashes.filter((item) => item.id !== stashId);
   await setStashes(remaining);
   completedRestores.delete(stashId);
+  closedStashes.delete(stashId);
   await clearRestoreAlarm(stashId);
 
   return { ok: true };
@@ -657,6 +774,10 @@ browser.runtime.onMessage.addListener((message) => {
 
   if (message?.type === "restore-stash-now") {
     return restoreStashById(message.stashId, { confirmRestore: message.confirmRestore === true });
+  }
+
+  if (message?.type === "finish-stash") {
+    return finishStashById(message.stashId);
   }
 
   if (message?.type === "cancel-stash") {

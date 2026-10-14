@@ -31,6 +31,8 @@ history, and relevant code before proposing changes.
   browser interfaces.
 - `scripts/firefox-checks.py` and `tests/firefox/scenarios.js`: disposable-profile
   Firefox automation using Marionette and loopback fixture pages.
+  `tests/firefox/stash-faults.js` injects failures only through the generated test
+  manifest; never include its hooks in the production manifest or release.
 
 There is no build step or application framework. Browser scripts share globals
 through manifest/HTML script ordering; some helpers also export CommonJS modules
@@ -42,6 +44,16 @@ need.
 
 - Persist a stash before closing its source tab. A failed persistence operation
   must not cause tab loss.
+- New stashes begin as inactive `stashing` records. Commit `scheduled` and
+  repeat-last state together only after confirmed source closure, using the
+  optional state patch to `setStashes`. Known pre-close failures roll back the
+  new record; uncertain closure or failed rollback retains a copy for review.
+  Preserve newer repeat-last metadata when finishing an older pending entry;
+  `state.lastStashId` and live stash order distinguish successful newer actions.
+  Live closure receipts may finish scheduling without closing any tab again.
+  After losing that receipt, never infer source closure from a stored browser
+  ID, URL, or title. Only explicit "Restore saved copy" may reopen an uncertain
+  stash; bulk/automatic restore must skip it. See `docs/stash-recovery.md`.
 - Preserve the original container, window, approximate position, and existing
   tab group where possible; retain graceful fallbacks when they are unavailable.
   Background restoration should respect the stored setting.
@@ -106,7 +118,7 @@ npm run test:firefox
 npm run test:firefox -- --skip-alarm
 ```
 
-The second command is a partial run that skips the real one-minute alarm. Use the
+The second command skips both real one-minute restore and retry alarms. Use the
 full run when validating scheduling. See `TESTING.md` for binary overrides,
 headed mode, and optional restart checks requiring a compatible Firefox build.
 Always use the disposable test profile, never the user's everyday profile.

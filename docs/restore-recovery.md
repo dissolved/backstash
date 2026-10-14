@@ -10,6 +10,9 @@ status are treated as scheduled. Optional `restoreFailureCount` and `nextRetryAt
 fields record the retry budget and timing; missing fields mean no prior failure.
 No URL/title matching or new permission is needed.
 
+Stash preparation also uses an inactive `stashing` state before source closure
+is committed. Its review and scheduling rules are in [Stash recovery](stash-recovery.md).
+
 | Stored status | Meaning | Allowed recovery |
 | --- | --- | --- |
 | `scheduled` or absent | No pending creation attempt | Restore when due; known creation failures use bounded automatic retries |
@@ -50,8 +53,8 @@ an open tab. Confirmed records offer **Finish cleanup**, which never creates a t
 
 This favors avoiding automatic duplicates when the result cannot be established.
 The APIs do not provide a transaction spanning tab creation, alarms, and storage.
-Actual process/power-loss durability and source-tab closure failure recovery
-remain separate work. Tests inject API failures in Node and seed durable recovery
+Actual process/power-loss durability remains unverified. Tests inject API failures
+in Node and seed durable recovery
 states across a real Firefox extension reload; they do not simulate a physical
 disk or power failure.
 

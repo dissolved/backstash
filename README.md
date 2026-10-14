@@ -23,6 +23,10 @@ tab already reopened, or **Restore again** when the outcome could not be
 confirmed. Check your open tabs before choosing **Restore again**. **Delete**
 dismisses the saved entry without closing any open tab.
 
+If saving a stash is interrupted, **Finish scheduling** completes it while
+Backstash can still confirm the source closed. Otherwise, **Restore saved copy**
+offers manual recovery; check whether the original tab is still open first.
+
 
 ## 🚧 Status
 
@@ -77,7 +81,7 @@ npm test
 ## 🗺 Roadmap (high-level)
 
 * Extension settings and scheduling polish
-* Stash creation/source-closure failure recovery (restore retries, restore recovery, and operation coordination are implemented)
+* Browser restart and process-interruption verification (stash/restore recovery, retries, and operation coordination are implemented)
 * Absolute date/time stashing
 * Richer stash management actions
 * Notification batching

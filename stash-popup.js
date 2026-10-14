@@ -43,7 +43,11 @@ function renderStashes(stashes) {
     const meta = document.createElement("p");
     meta.className = "stash-meta";
     meta.textContent = `Restores ${formatWakeAt(stash.wakeAt)}`;
-    if (stash.status === "restoring") {
+    if (stash.status === "stashing") {
+      meta.textContent = "Stashing was interrupted. The source tab may still be open; check your tabs before restoring this saved copy.";
+    } else if (stash.status === "stashed") {
+      meta.textContent = "Source tab closed. Finish scheduling this saved tab.";
+    } else if (stash.status === "restoring") {
       meta.textContent = "A previous restore may have opened this tab. Check your tabs before restoring again.";
     } else if (stash.status === "restored") {
       meta.textContent = "Tab already restored. Cleanup is still pending.";
@@ -63,6 +67,8 @@ function renderStashes(stashes) {
     restoreButton.type = "button";
     restoreButton.className = "stash-action-link";
     restoreButton.textContent = "Restore";
+    if (stash.status === "stashing") restoreButton.textContent = "Restore saved copy";
+    if (stash.status === "stashed") restoreButton.textContent = "Finish scheduling";
     if (stash.status === "restoring") restoreButton.textContent = "Restore again";
     if (stash.status === "restored") restoreButton.textContent = "Finish cleanup";
     restoreButton.addEventListener("click", async () => {
@@ -72,9 +78,9 @@ function renderStashes(stashes) {
 
       try {
         const response = await browser.runtime.sendMessage({
-          type: "restore-stash-now",
+          type: stash.status === "stashed" ? "finish-stash" : "restore-stash-now",
           stashId: stash.id,
-          confirmRestore: stash.status === "restoring",
+          confirmRestore: stash.status === "restoring" || stash.status === "stashing",
         });
 
         if (!response?.ok) {
@@ -87,6 +93,7 @@ function renderStashes(stashes) {
 
         await refreshStashes();
         if (response.cleanupPending) setStatus("Tab restored. Cleanup is still pending.");
+        if (response.alarmPending) setStatus(response.error);
       } catch (error) {
         setStatus("Backstash could not restore that stash.");
         restoreButton.disabled = false;
@@ -174,10 +181,18 @@ form.addEventListener("submit", async (event) => {
     });
 
     if (!response?.ok) {
+      if (response?.stashSaved) await refreshStashes();
       setStatus(response?.error ?? "Backstash could not stash this tab.");
       setBusy(false);
       minutesInput.focus();
       minutesInput.select();
+      return;
+    }
+
+    if (response.alarmPending) {
+      await refreshStashes();
+      setStatus(response.error);
+      setBusy(false);
       return;
     }
 
