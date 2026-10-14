@@ -138,6 +138,8 @@ function createBackgroundHarness() {
 
 test("restoreStashById collapses concurrent restores for the same stash", async () => {
   const harness = createBackgroundHarness();
+  // Startup reconciliation is queued too; seed only after it has completed.
+  await new Promise(resolve => setImmediate(resolve));
   const stashItem = {
     id: "stash-1",
     url: "https://example.com",

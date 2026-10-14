@@ -142,7 +142,7 @@ def main():
             driver.set_pref('extensions.background.idle.timeout', 300000)
             scenario('verifyWake', [wake])
             print('PASS natural background suspension and message wake', flush=True)
-            for name in ['restoreContexts', 'containers', 'groups', 'popup', 'rejectedInputs']:
+            for name in ['restoreContexts', 'containers', 'groups', 'popup', 'rejectedInputs', 'concurrency']:
                 scenario(name, [fixture_url])
                 print('PASS ' + name, flush=True)
             expected = scenario('prepareReconciliation', [fixture_url])

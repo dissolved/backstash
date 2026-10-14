@@ -5,8 +5,9 @@
 ### Scheduling reliability
 - Implemented: reconciliation on extension load and browser startup recreates missing alarms, removes orphaned restore alarms, and restores overdue stashes.
 - Implemented: concurrent individual restore requests for the same stash share one operation.
-- Remaining: coordinate restore-all, individual restores, cancellation, and storage writes so concurrent operations cannot duplicate restores or overwrite newer stashes.
+- Implemented: a shared mutation queue coordinates stash creation, repeat-last, restore-all, individual restores, cancellation, and reconciliation. Overlapping operations no longer write stale stash lists; queued stash requests retain their selected tab identity.
 - Define automatic retry/backoff for failed restores; currently failed stashes remain stored for manual retry or later reconciliation.
+- Harden recovery from partial tab/storage/alarm failures and process interruption; the in-memory queue does not make Firefox API side effects and storage writes atomic.
 - Verify upgrade/schema migration behavior when the storage schema changes.
 
 ### Automated Firefox coverage

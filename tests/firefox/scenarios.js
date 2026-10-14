@@ -173,6 +173,43 @@ export async function popup(url) {
   } finally { window.close = originalClose; }
 }
 
+export async function concurrency(url) {
+  await reset();
+  const token = crypto.randomUUID();
+  const first = await stash(`${url}?concurrent-first=${token}`);
+  const second = await stash(`${url}?concurrent-second=${token}`);
+  const cancelled = await stash(`${url}?concurrent-cancelled=${token}`);
+  const pendingUrl = `${url}?concurrent-new=${token}`;
+  const pending = await browser.tabs.create({ url: pendingUrl, active: true });
+  await browser.windows.update(pending.windowId, { focused: true });
+  await waitFor(async () => {
+    const tab = await browser.tabs.get(pending.id);
+    return tab.url === pendingUrl && tab.status === 'complete';
+  }, 'concurrent stash fixture loaded');
+  // Submit all requests without awaiting them, from the same message sender.
+  const results = await Promise.all([
+    send('cancel-stash', { stashId: cancelled.item.id }),
+    send('restore-stash-now', { stashId: first.item.id }),
+    send('restore-all-stashes'),
+    send('restore-stash-now', { stashId: second.item.id }),
+    send('stash-for-minutes', { minutes: 15 }),
+  ]);
+  assert(results[0].ok && results[1].ok && results[2].ok && results[4].ok, 'Concurrent actions failed');
+  const tabs = await browser.tabs.query({});
+  for (const saved of [first, second]) {
+    assert(tabs.filter(tab => tab.url === saved.item.url).length === 1, 'Concurrent restore duplicated or lost tab');
+  }
+  assert(!tabs.some(tab => tab.url === cancelled.item.url), 'Cancelled stash reopened');
+  assert(!tabs.some(tab => tab.id === pending.id), 'New source tab not closed');
+  const remaining = await list();
+  assert(remaining.length === 1 && remaining[0].url === pendingUrl, 'Concurrent stash lost or old stash resurrected');
+  const alarms = await browser.alarms.getAll();
+  assert(alarms.length === 1 && alarms[0].name === alarmName(remaining[0].id), 'Concurrent actions left incorrect alarms');
+  assert((await data()).state.lastStashPresetMinutes === 15, 'Concurrent stash lost repeat-last state');
+  await send('cancel-stash', { stashId: remaining[0].id });
+  await browser.tabs.remove(tabs.filter(tab => [first.item.url, second.item.url].includes(tab.url)).map(tab => tab.id));
+}
+
 export async function prepareReconciliation(url) {
   await reset();
   const token = crypto.randomUUID();

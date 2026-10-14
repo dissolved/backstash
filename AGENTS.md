@@ -50,9 +50,13 @@ need.
   or startup.
 - Reconciliation already recreates missing alarms, removes orphan restore
   alarms, and restores overdue stashes. Individual concurrent restores for the
-  same stash already share one operation. Broader coordination between
-  restore-all, cancellation, and storage writes remains a roadmap item; do not
-  assume these operations are race-free.
+  same stash already share one operation. All background mutations run through
+  one queue, including restore-all, cancellation, repeat-last, and reconciliation.
+  Keep new state-changing entry points on that queue; helpers called from inside
+  it must not enqueue and await another operation (that would deadlock).
+  Capture stash target identity before waiting, then re-read that tab before
+  persisting/closing it. The queue orders live requests; it does not provide
+  crash-safe transactions across storage, tab creation/removal, and alarms.
 - Failed restores retain their stashes for retry. Avoid changing failure paths
   in ways that discard recoverable data or create duplicate tabs.
 - Keep settings and state in the existing storage root. Plan migration and

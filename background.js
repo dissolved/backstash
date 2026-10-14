@@ -1,5 +1,29 @@
 const RESTORE_EVENT_PREFIX = "restore-stash:";
 const restoreOperations = new Map();
+let mutationQueue = Promise.resolve();
+
+// Serialize complete state transitions, including their tab/alarm side effects.
+// Only entry points enqueue; internal helpers must not enqueue and await another
+// operation while holding the queue. A rejected operation must not block later work.
+function enqueueMutation(operation) {
+  const result = mutationQueue.then(operation);
+  mutationQueue = result.catch(() => {});
+  return result;
+}
+
+function enqueueActiveTabMutation(operation) {
+  // Capture the target before waiting for earlier mutations, while reserving
+  // queue order immediately. Handle query rejection even while the queue waits.
+  const target = browser.tabs.query({ active: true, currentWindow: true }).then(
+    tabs => ({ tab: tabs[0] }),
+    error => ({ error }),
+  );
+  return enqueueMutation(async () => {
+    const { tab, error } = await target;
+    if (error) throw error;
+    return operation(tab);
+  });
+}
 /**
  * Build a unique alarm name for one stashed tab.
  */
@@ -113,22 +137,29 @@ async function getRestoreIndex(windowId, originalTabIndex) {
  * Stash the currently active tab for the provided duration in minutes.
  */
 async function stashActiveTab(minutes) {
+  return enqueueActiveTabMutation(tab => performStashActiveTab(minutes, tab));
+}
+
+async function performStashActiveTab(minutes, selectedTab) {
   if (!BackstashPresets.isValidDurationMinutes(minutes)) {
     const error = "Invalid stash duration; expected a positive whole number of minutes.";
     console.warn(error);
     return { ok: false, error };
   }
 
-  const tabs = await browser.tabs.query({
-    active: true,
-    currentWindow: true,
-  });
-
-  const tab = tabs[0];
-  if (!tab) {
+  if (!selectedTab) {
     const error = "No active tab found.";
     console.warn(error);
     return { ok: false, error };
+  }
+
+  // Re-read by identity: it may have navigated or closed while queued. Never
+  // persist a second stash for a source tab that an earlier request closed.
+  let tab;
+  try {
+    tab = await browser.tabs.get(selectedTab.id);
+  } catch {
+    return { ok: false, error: "The selected tab is no longer available." };
   }
 
   if (!isSupportedTabUrl(tab.url)) {
@@ -159,6 +190,10 @@ async function stashActiveTab(minutes) {
 }
 
 async function repeatLastStash() {
+  return enqueueActiveTabMutation(performRepeatLastStash);
+}
+
+async function performRepeatLastStash(selectedTab) {
   const state = await getState();
   const minutes = BackstashPresets.getRepeatLastStashMinutes(state);
 
@@ -167,7 +202,7 @@ async function repeatLastStash() {
     return;
   }
 
-  await stashActiveTab(minutes);
+  return performStashActiveTab(minutes, selectedTab);
 }
 
 async function createRestoredTab(stashItem) {
@@ -293,7 +328,7 @@ async function restoreStashById(stashId) {
     return existingRestore;
   }
 
-  const restorePromise = performRestoreStashById(stashId).finally(() => {
+  const restorePromise = enqueueMutation(() => performRestoreStashById(stashId)).finally(() => {
     restoreOperations.delete(stashId);
   });
   restoreOperations.set(stashId, restorePromise);
@@ -301,6 +336,10 @@ async function restoreStashById(stashId) {
 }
 
 async function restoreAllStashes() {
+  return enqueueMutation(performRestoreAllStashes);
+}
+
+async function performRestoreAllStashes() {
   const stashes = await getStashes();
   if (stashes.length === 0) {
     console.warn("No stashed tabs are available to restore.");
@@ -311,33 +350,35 @@ async function restoreAllStashes() {
     };
   }
 
-  const remaining = [];
+  let failedCount = 0;
   let restoredCount = 0;
 
   for (const stashItem of stashes) {
-    const result = await restoreStashItem(stashItem);
+    const result = await performRestoreStashById(stashItem.id);
     if (result.ok) {
       restoredCount += 1;
       continue;
     }
 
-    remaining.push(stashItem);
+    failedCount += 1;
   }
 
-  await setStashes(remaining);
-
   console.log(
-    `Restore-all completed: ${restoredCount} restored, ${remaining.length} remaining.`,
+    `Restore-all completed: ${restoredCount} restored, ${failedCount} remaining.`,
   );
 
   return {
     ok: restoredCount > 0,
     restoredCount,
-    failedCount: remaining.length,
+    failedCount,
   };
 }
 
 async function reconcileScheduledStashes() {
+  return enqueueMutation(performReconcileScheduledStashes);
+}
+
+async function performReconcileScheduledStashes() {
   const stashes = await getStashes();
   const alarms = await getRestoreAlarms();
   const stashIds = new Set(stashes.map((stashItem) => stashItem.id));
@@ -350,7 +391,7 @@ async function reconcileScheduledStashes() {
   for (const stashItem of stashes) {
     if (stashItem.wakeAt <= Date.now()) {
       dueRestoreCount += 1;
-      await restoreStashById(stashItem.id);
+      await performRestoreStashById(stashItem.id);
       continue;
     }
 
@@ -395,6 +436,10 @@ async function listStashes() {
 }
 
 async function cancelStashById(stashId) {
+  return enqueueMutation(() => performCancelStashById(stashId));
+}
+
+async function performCancelStashById(stashId) {
   const stashes = await getStashes();
   const stashExists = stashes.some((item) => item.id === stashId);
 

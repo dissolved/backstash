@@ -68,7 +68,7 @@ npm test
 ## 🗺 Roadmap (high-level)
 
 * Extension settings and scheduling polish
-* Scheduling concurrency and restore retry reliability (startup reconciliation is implemented)
+* Restore retry and partial-failure recovery (startup reconciliation and operation coordination are implemented)
 * Absolute date/time stashing
 * Richer stash management actions
 * Notification batching

@@ -11,6 +11,8 @@ async function harness() {
   const created = [];
   const removed = [];
   const notifications = [];
+  let activeTabId = 7;
+  const fixtureTab = id => ({ id, windowId: 1, index: 2, url: 'https://example.com', title: 'Fixture' });
   const event = name => ({ addListener(fn) { listeners[name] = fn; } });
   const browser = {
     storage: { local: {
@@ -24,8 +26,12 @@ async function harness() {
     },
     windows: { get: async id => ({ id }), getLastFocused: async () => ({ id: 1 }) },
     tabs: {
-      query: async () => [{ id: 7, windowId: 1, index: 2, url: 'https://example.com', title: 'Fixture' }],
-      remove: async id => { removed.push(id); },
+      query: async () => [fixtureTab(activeTabId)],
+      get: async id => {
+        if (removed.includes(id)) throw new Error('tab closed');
+        return fixtureTab(id);
+      },
+      remove: async id => { removed.push(id); if (activeTabId === id) activeTabId += 1; },
       create: async options => { created.push(options); return { id: 42, windowId: 1 }; },
     },
     notifications: { create: async (id, options) => { notifications.push(options); return id; } },
@@ -43,6 +49,7 @@ async function harness() {
     browser, alarms, created, removed, notifications, listeners,
     send: (type, fields = {}) => listeners.message({ type, ...fields }),
     read: () => stored.backstash,
+    selectTab(id) { activeTabId = id; },
     seed(stashes, settings = {}) { stored = { backstash: { schemaVersion: 1, stashes, settings, state: {} } }; },
     reconcile: () => vm.runInContext('reconcileScheduledStashes()', context),
   };
@@ -51,6 +58,180 @@ async function harness() {
 const item = (id, wakeAt = Date.now() + 600000) => ({
   id, wakeAt, url: `https://example.com/${id}`, title: id,
   originalWindowId: 1, originalTabIndex: 2, cookieStoreId: null,
+});
+
+function deferred() {
+  let resolve;
+  const promise = new Promise(done => { resolve = done; });
+  return { promise, resolve };
+}
+
+// Stop one real production restore at tab creation so competing requests are
+// guaranteed to overlap; no timer-based race assumptions.
+function pauseRestore(h) {
+  const entered = deferred();
+  const release = deferred();
+  const create = h.browser.tabs.create;
+  let paused = false;
+  h.browser.tabs.create = async options => {
+    if (!paused) {
+      paused = true;
+      entered.resolve();
+      await release.promise;
+    }
+    return create(options);
+  };
+  return { entered: entered.promise, release: release.resolve };
+}
+
+test('overlapping individual restores do not resurrect either stash', async () => {
+  const h = await harness();
+  h.seed([item('first'), item('second')]);
+  const paused = pauseRestore(h);
+  const first = h.send('restore-stash-now', { stashId: 'first' });
+  await paused.entered;
+  const second = h.send('restore-stash-now', { stashId: 'second' });
+  paused.release();
+  const results = await Promise.all([first, second]);
+  assert(results.every(result => result.ok));
+  assert.equal(h.read().stashes.length, 0);
+  assert.equal(h.created.length, 2);
+});
+
+for (const firstAction of ['restore-all-stashes', 'restore-stash-now']) {
+  test(`overlapping bulk and individual restores create each tab once (${firstAction} first)`, async () => {
+    const h = await harness();
+    h.seed([item('first'), item('second')]);
+    const paused = pauseRestore(h);
+    const first = h.send(firstAction, { stashId: 'first' });
+    await paused.entered;
+    const secondAction = firstAction === 'restore-all-stashes' ? 'restore-stash-now' : 'restore-all-stashes';
+    const second = h.send(secondAction, { stashId: 'first' });
+    const third = h.send('restore-all-stashes');
+    paused.release();
+    await Promise.all([first, second, third]);
+    assert.deepEqual(h.created.map(tab => tab.url).sort(), [item('first').url, item('second').url]);
+    assert.equal(h.read().stashes.length, 0);
+    assert.equal(h.alarms.size, 0);
+  });
+}
+
+test('cancellation before a restore prevents reopening, including restore-all', async () => {
+  const h = await harness();
+  h.seed([item('cancelled'), item('kept')]);
+  const cancel = h.send('cancel-stash', { stashId: 'cancelled' });
+  const restore = h.send('restore-stash-now', { stashId: 'cancelled' });
+  const all = h.send('restore-all-stashes');
+  assert((await cancel).ok);
+  await Promise.all([restore, all]);
+  assert.deepEqual(h.created.map(tab => tab.url), [item('kept').url]);
+  assert.equal(h.read().stashes.length, 0);
+});
+
+test('cancellation during a restore cannot resurrect another stash', async () => {
+  const h = await harness();
+  h.seed([item('restoring'), item('cancelled')]);
+  const paused = pauseRestore(h);
+  const restore = h.send('restore-stash-now', { stashId: 'restoring' });
+  await paused.entered;
+  const same = h.send('cancel-stash', { stashId: 'restoring' });
+  const other = h.send('cancel-stash', { stashId: 'cancelled' });
+  paused.release();
+  assert((await restore).ok);
+  assert(!(await same).ok, 'restore already completed before cancellation');
+  assert((await other).ok);
+  assert.equal(h.created.length, 1);
+  assert.equal(h.read().stashes.length, 0);
+});
+
+for (const restoreAction of ['restore-stash-now', 'restore-all-stashes']) {
+  test(`new stashes and repeat-last state survive overlapping ${restoreAction}`, async () => {
+    const h = await harness();
+    h.seed([item('old')]);
+    const paused = pauseRestore(h);
+    const restore = h.send(restoreAction, { stashId: 'old' });
+    await paused.entered;
+    const stash = h.send('stash-for-minutes', { minutes: 15 });
+    h.selectTab(8);
+    const repeat = h.listeners.command('repeat-last-stash');
+    h.selectTab(9);
+    paused.release();
+    await Promise.all([restore, stash, repeat]);
+    assert.equal(h.created.length, 1);
+    assert.equal(h.read().stashes.length, 2);
+    assert(h.read().stashes.every(stash => stash.id !== 'old'));
+    assert.equal(h.read().state.lastStashPresetMinutes, 15);
+    assert.equal(h.removed.length, 2);
+    assert.deepEqual(h.removed, [7, 8], 'queued actions must keep their original target tabs');
+    assert.equal(h.alarms.size, 2);
+  });
+}
+
+test('overlapping stash requests for the same source tab persist and close it only once', async () => {
+  const h = await harness();
+  h.seed([item('old')]);
+  const paused = pauseRestore(h);
+  const restore = h.send('restore-stash-now', { stashId: 'old' });
+  await paused.entered;
+  const first = h.send('stash-for-minutes', { minutes: 15 });
+  const second = h.send('stash-for-minutes', { minutes: 30 });
+  paused.release();
+  await restore;
+  assert((await first).ok);
+  assert(!(await second).ok);
+  assert.deepEqual(h.removed, [7]);
+  assert.equal(h.read().stashes.length, 1);
+  assert.equal(h.read().state.lastStashPresetMinutes, 15);
+  assert.equal(h.alarms.size, 1);
+});
+
+test('a queued stash refuses a source tab closed while waiting', async () => {
+  const h = await harness();
+  h.seed([item('old')]);
+  const paused = pauseRestore(h);
+  const restore = h.send('restore-stash-now', { stashId: 'old' });
+  await paused.entered;
+  const stash = h.send('stash-for-minutes', { minutes: 15 });
+  await h.browser.tabs.remove(7);
+  paused.release();
+  await restore;
+  assert(!(await stash).ok);
+  assert.equal(h.read().stashes.length, 0);
+  assert.equal(h.alarms.size, 0);
+  assert.deepEqual(h.removed, [7]);
+});
+
+test('reconciliation overlapping restore, cancel and stash leaves only live alarms', async () => {
+  const h = await harness();
+  h.seed([item('due', 0), item('cancelled')]);
+  const paused = pauseRestore(h);
+  const reconciliation = h.reconcile();
+  await paused.entered;
+  const cancel = h.send('cancel-stash', { stashId: 'cancelled' });
+  const restore = h.send('restore-stash-now', { stashId: 'due' });
+  const stash = h.send('stash-for-minutes', { minutes: 10 });
+  paused.release();
+  await Promise.all([reconciliation, cancel, restore, stash]);
+  assert.equal(h.created.length, 1);
+  assert.equal(h.read().stashes.length, 1);
+  assert.deepEqual([...h.alarms.keys()], [`restore-stash:${h.read().stashes[0].id}`]);
+});
+
+test('a rejected storage write does not block later queued operations', async () => {
+  const h = await harness();
+  h.seed([item('cancelled')]);
+  const set = h.browser.storage.local.set;
+  let fail = true;
+  h.browser.storage.local.set = async value => {
+    if (fail) { fail = false; throw new Error('disk full'); }
+    return set(value);
+  };
+  const stash = h.send('stash-for-minutes', { minutes: 10 });
+  const cancel = h.send('cancel-stash', { stashId: 'cancelled' });
+  await assert.rejects(stash, /disk full/);
+  assert((await cancel).ok);
+  assert.equal(h.read().stashes.length, 0);
+  assert.equal(h.removed.length, 0);
 });
 
 test('reconciliation recreates missing alarms, preserves existing alarms, clears only owned orphans and restores overdue stashes', async () => {

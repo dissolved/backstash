@@ -7,7 +7,7 @@ npm test
 npm run lint
 ```
 
-Node tests exercise production scripts with isolated browser interfaces, plus pure duration/preset and restore-decision logic. Coverage includes window selection/index clamping, command routing, same-stash restore deduplication, reconciliation/idempotence, failed-restore recovery, persistence before tab closure, storage-write failure, cancellation, partial restore-all failure, and notification failure/settings. Fake browser interfaces cannot establish actual Firefox API behavior.
+Node tests exercise production scripts with isolated browser interfaces, plus pure duration/preset and restore-decision logic. Coverage includes window selection/index clamping, command routing, same-stash restore deduplication, reconciliation/idempotence, failed-restore recovery, persistence before tab closure, storage-write failure, cancellation, partial restore-all failure, and notification failure/settings. Deferred API responses force overlap between distinct restores, restore-all, cancellation, stash/repeat-last, and reconciliation, checking tab counts, retained state, alarm cleanup, queue recovery after rejection, and captured target identity even when focus changes or a source tab closes. Fake browser interfaces cannot establish actual Firefox API behavior.
 
 ## Automated Firefox checks
 
@@ -40,6 +40,7 @@ The runner enables remote system access only in the test process. `--restart` re
 | Unsupported internal URLs and invalid duration messages | Verify rejection leaves storage/alarms empty |
 | Popup duration entry and feedback | Submit `15`, `15m`, `2h`, `3d`; reject decimal input |
 | Popup sorted list, restore, delete, restore all | Operate actual production DOM controls and verify storage, alarms, and tabs |
+| Concurrent messages | Overlap cancel, individual/bulk restores, and a new stash; verify exactly one tab per restored stash, no cancelled tab, retained new stash/repeat-last state, and matching alarms |
 | Extension reload reconciliation | Actual add-on reload with missing/orphan alarms and an overdue stash; verify exactly one overdue tab |
 | Background lifecycle | Observe natural suspension from the parent process, then verify message wake preserves stash/state and recreates its missing alarm |
 | Scheduled restore | Real one-minute alarm and elapsed wall time; explicitly skipped with `--skip-alarm` |
@@ -58,6 +59,27 @@ Popup tests render the production popup page in a browser tab and suppress only 
 Do not repeat the automated matrix manually after a passing run unless diagnosing a browser/profile-specific issue. Extend the suite when adding behavior; retain manual checks only where automation does not establish the result.
 
 ## Recorded results
+
+### 2026-10-14
+
+- All 41 Node tests passed; ESLint and `git diff --check` passed.
+- Eleven new concurrency/target-identity regression cases fail against the prior
+  background implementation and pass with the shared mutation queue. Tests pause
+  API responses to force overlapping requests rather than relying on timing.
+- `npm run test:firefox`: full headless macOS Firefox 158.0 suite passed with the
+  final queued-target implementation, including concurrent cancel/individual and
+  bulk restore/new-stash messages, popup actions, windows/containers/groups,
+  natural background suspension/message wake, actual extension reload, and the
+  real one-minute restore alarm.
+- Browser restart was explicitly skipped (no `--restart` run). OS sleep/wake and
+  native presentation/usability checks were not performed.
+- Coordination applies to state-changing entry points in the running background
+  context. Actions execute in queue order: an earlier cancellation prevents a
+  later restore; cancellation queued after a restore cannot undo its created tab.
+  Stash commands retain their initially selected tab identity and reject it if
+  closed before execution. The queue is not a transaction across Firefox tabs,
+  alarms, and storage; recovery from partial failures or process interruption
+  remains a separate reliability task.
 
 ### 2026-10-13
 
