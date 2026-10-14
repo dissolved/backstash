@@ -266,6 +266,55 @@ export async function verifyRestoreRecovery({ completed, uncertainOpen, uncertai
   await browser.tabs.remove((await browser.tabs.query({})).filter(tab => urls.includes(tab.url)).map(tab => tab.id));
 }
 
+export async function prepareRetryState(url) {
+  await reset();
+  const token = crypto.randomUUID();
+  const waiting = (await stash(`${url}?waiting-retry=${token}`)).item;
+  const exhausted = (await stash(`${url}?exhausted-retry=${token}`)).item;
+  const overdue = (await stash(`${url}?overdue-retry=${token}`)).item;
+  const stored = await data();
+  for (const item of stored.stashes) {
+    item.wakeAt = 0;
+    item.restoreFailureCount = item.id === waiting.id ? 2 : (item.id === exhausted.id ? 4 : 1);
+    item.nextRetryAt = item.id === waiting.id ? Date.now() + 300000 : (item.id === exhausted.id ? null : Date.now() - 1000);
+  }
+  waiting.nextRetryAt = stored.stashes.find(item => item.id === waiting.id).nextRetryAt;
+  await browser.storage.local.set({ backstash: stored });
+  return { waiting, exhausted, overdue };
+}
+
+export async function verifyRetryState({ waiting, exhausted, overdue }) {
+  const items = await list();
+  assert(items.length === 2 && !items.some(item => item.id === overdue.id), 'Overdue retry not restored');
+  assert((await browser.tabs.query({})).filter(tab => tab.url === overdue.url).length === 1, 'Overdue retry duplicated or lost');
+  assert((await browser.alarms.get(alarmName(waiting.id))).scheduledTime === waiting.nextRetryAt, 'Reload ignored persisted retry timing');
+  assert(!await browser.alarms.get(alarmName(exhausted.id)), 'Exhausted retry was rearmed');
+  await window.refreshStashes();
+  let rows = [...document.querySelectorAll('.stash-item')];
+  const waitingRow = rows[items.findIndex(item => item.id === waiting.id)];
+  const exhaustedRow = rows[items.findIndex(item => item.id === exhausted.id)];
+  assert(waitingRow.querySelector('.stash-meta').textContent.includes('Retry due'), 'Retry timing missing from popup');
+  assert(exhaustedRow.querySelector('.stash-meta').textContent.includes('retries stopped'), 'Exhaustion missing from popup');
+  waitingRow.querySelectorAll('button')[1].click();
+  await waitFor(() => document.querySelectorAll('.stash-item').length === 1, 'cancel pending retry');
+  assert(!await browser.alarms.get(alarmName(waiting.id)), 'Cancelled retry alarm retained');
+  rows = [...document.querySelectorAll('.stash-item')];
+  rows[0].querySelector('button').click();
+  await waitFor(() => document.querySelectorAll('.stash-item').length === 0, 'manual restore after exhaustion');
+  const tabs = await browser.tabs.query({});
+  assert(tabs.filter(tab => tab.url === exhausted.url).length === 1, 'Manual restore after exhaustion failed');
+  assert(!tabs.some(tab => tab.url === waiting.url), 'Cancelled pending retry reopened');
+  await browser.tabs.remove(tabs.filter(tab => [overdue.url, exhausted.url].includes(tab.url)).map(tab => tab.id));
+}
+
+export async function retryScheduling(url) {
+  const pending = await prepareRetryAlarm(url);
+  await window.refreshStashes();
+  assert(document.querySelector('.stash-meta').textContent.includes('Retry due'), 'Known failure did not display retry timing');
+  assert((await send('cancel-stash', { stashId: pending.id })).ok, 'Could not cancel a scheduled retry');
+  assert(!await browser.alarms.get(alarmName(pending.id)), 'Retry cancellation retained alarm');
+}
+
 export async function prepareReconciliation(url) {
   await reset();
   const token = crypto.randomUUID();
@@ -292,6 +341,26 @@ export async function verifyReconciliation({ future, due }) {
 export async function prepareAlarm(url) {
   await reset();
   return (await stash(`${url}?real-alarm`, {}, 1)).item;
+}
+
+export async function prepareRetryAlarm(url) {
+  await reset();
+  const original = (await stash(`${url}?real-retry=${crypto.randomUUID()}`)).item;
+  const stored = await data();
+  // Firefox rejects javascript: in tabs.create. Exercise an actual API failure,
+  // then fix the saved fixture URL without changing the production retry alarm.
+  stored.stashes[0].url = 'javascript:void(0)';
+  await browser.storage.local.set({ backstash: stored });
+  const start = Date.now();
+  const result = await send('restore-stash-now', { stashId: original.id });
+  assert(!result.ok && result.retryScheduled, 'Actual creation failure did not schedule a retry');
+  const pending = await data();
+  const item = pending.stashes[0];
+  assert(item.restoreFailureCount === 1 && item.nextRetryAt >= start + 60000 && item.nextRetryAt <= Date.now() + 60000, 'Incorrect first retry delay');
+  assert((await browser.alarms.get(alarmName(item.id))).scheduledTime === item.nextRetryAt, 'Retry alarm does not match saved timing');
+  item.url = original.url;
+  await browser.storage.local.set({ backstash: pending });
+  return item;
 }
 
 export async function alarmFinished(item) {

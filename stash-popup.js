@@ -47,6 +47,10 @@ function renderStashes(stashes) {
       meta.textContent = "A previous restore may have opened this tab. Check your tabs before restoring again.";
     } else if (stash.status === "restored") {
       meta.textContent = "Tab already restored. Cleanup is still pending.";
+    } else if (stash.retryExhausted) {
+      meta.textContent = "Automatic retries stopped. Choose Restore to try again.";
+    } else if (stash.nextRetryAt !== null && stash.nextRetryAt !== undefined) {
+      meta.textContent = `Retry due ${formatWakeAt(stash.nextRetryAt)}`;
     }
 
     const footer = document.createElement("div");

@@ -66,7 +66,12 @@ need.
   user's explicit "Restore again" action. Bulk restore, alarms, and reconciliation
   must never implicitly confirm uncertain attempts. Do not infer success by
   matching URLs/titles or by looking up a tab ID from a previous browser session.
-  See `docs/restore-recovery.md` before changing this protocol or adding retries.
+  Scheduled creation failures get three automatic retries after 1, 5, and 15
+  minutes. Persist `restoreFailureCount` and `nextRetryAt` before arming an alarm;
+  alarms/reconciliation must respect both timing and exhaustion. Manual Restore
+  (including restore-all) starts a fresh cycle. Do not replace the original
+  `wakeAt` with retry timing or use in-memory timers for durable scheduling.
+  See `docs/restore-recovery.md` before changing this protocol or retry policy.
 - Keep settings and state in the existing storage root. Plan migration and
   compatibility explicitly when changing the schema.
 - Keep permissions and exposure of URLs/titles minimal. Do not add telemetry,

@@ -5,6 +5,11 @@ const fs = require('node:fs');
 const path = require('node:path');
 
 async function harness() {
+  let now = Date.now();
+  class Clock extends Date {
+    constructor(...args) { super(...(args.length ? args : [now])); }
+    static now() { return now; }
+  }
   const listeners = {};
   const alarms = new Map();
   let stored = {};
@@ -20,7 +25,7 @@ async function harness() {
       set: async value => { stored = structuredClone(value); },
     } },
     alarms: {
-      create: async (name, alarm) => { alarms.set(name, { name, ...alarm }); },
+      create: async (name, alarm) => { alarms.set(name, { name, ...alarm, scheduledTime: alarm.when }); },
       clear: async name => alarms.delete(name),
       getAll: async () => [...alarms.values()], onAlarm: event('alarm'),
     },
@@ -41,7 +46,7 @@ async function harness() {
   };
   let context;
   async function loadBackground() {
-    context = vm.createContext({ browser, console: { log() {}, warn() {}, error() {} } });
+    context = vm.createContext({ browser, Date: Clock, console: { log() {}, warn() {}, error() {} } });
     for (const file of ['constants.js', 'storage.js', 'restore-logic.js', 'stash-presets.js', 'background.js']) {
       vm.runInContext(fs.readFileSync(path.join(__dirname, '..', file), 'utf8'), context, { filename: file });
     }
@@ -57,6 +62,13 @@ async function harness() {
     seed(stashes, settings = {}) { stored = { backstash: { schemaVersion: 1, stashes, settings, state: {} } }; },
     reconcile: () => vm.runInContext('reconcileScheduledStashes()', context),
     reload: loadBackground,
+    now: () => now,
+    advance(milliseconds) { now += milliseconds; },
+    fireAlarm(id) {
+      const name = `restore-stash:${id}`;
+      alarms.delete(name);
+      return listeners.alarm({ name });
+    },
   };
 }
 
@@ -88,6 +100,187 @@ function pauseRestore(h) {
   };
   return { entered: entered.promise, release: release.resolve };
 }
+
+test('known failures retry after 1, 5 and 15 minutes, then stop across alarms and reloads', async () => {
+  const h = await harness();
+  h.seed([item('retry', 0)]);
+  let attempts = 0;
+  h.browser.tabs.create = async () => { attempts += 1; throw new Error('creation unavailable'); };
+  await h.reconcile();
+  assert.equal(attempts, 1);
+  for (const [index, delay] of [60_000, 300_000, 900_000].entries()) {
+    const failed = h.read().stashes[0];
+    assert.equal(failed.restoreFailureCount, index + 1);
+    assert.equal(failed.nextRetryAt, h.now() + delay);
+    assert.equal(h.alarms.get('restore-stash:retry').scheduledTime, failed.nextRetryAt);
+    await h.reload();
+    assert.equal(attempts, index + 1, 'reload must not bypass the retry delay');
+    h.advance(delay - 1);
+    await h.reconcile();
+    assert.equal(attempts, index + 1);
+    h.advance(1);
+    await h.fireAlarm('retry');
+    assert.equal(attempts, index + 2);
+  }
+  assert.equal(h.read().stashes[0].restoreFailureCount, 4);
+  assert.equal(h.read().stashes[0].nextRetryAt, null);
+  assert.equal(h.alarms.size, 0);
+  assert((await h.send('list-stashes'))[0].retryExhausted);
+  h.advance(86400_000);
+  await h.reload();
+  await h.reconcile();
+  await h.fireAlarm('retry');
+  assert.equal(attempts, 4, 'exhausted attempts must not restart automatically');
+});
+
+test('a manual restore can run before a retry is due and starts a new retry cycle', async () => {
+  const h = await harness();
+  h.seed([{ ...item('retry', 0), restoreFailureCount: 3, nextRetryAt: h.now() + 900_000 }]);
+  h.browser.tabs.create = async () => { throw new Error('creation failed'); };
+  const result = await h.send('restore-stash-now', { stashId: 'retry' });
+  assert(result.retryScheduled);
+  assert.equal(h.read().stashes[0].restoreFailureCount, 1);
+  assert.equal(h.read().stashes[0].nextRetryAt, h.now() + 60_000);
+});
+
+test('manual restore-all restarts exhausted budgets while skipping uncertain attempts', async () => {
+  const h = await harness();
+  h.seed([
+    { ...item('retry', 0), restoreFailureCount: 4, nextRetryAt: null },
+    { ...item('uncertain', 0), status: 'restoring' },
+  ]);
+  let attempts = 0;
+  h.browser.tabs.create = async () => { attempts += 1; throw new Error('creation failed'); };
+  await h.send('restore-all-stashes');
+  assert.equal(attempts, 1);
+  assert.equal(h.read().stashes[0].restoreFailureCount, 1);
+  assert.equal(h.read().stashes[1].status, 'restoring');
+  assert.equal(h.alarms.size, 1);
+});
+
+test('an overdue retry is attempted once after reload, then persists its next delay', async () => {
+  const h = await harness();
+  h.seed([{ ...item('retry', 0), restoreFailureCount: 1, nextRetryAt: h.now() - 1 }]);
+  let attempts = 0;
+  h.browser.tabs.create = async () => { attempts += 1; throw new Error('creation failed'); };
+  await h.reload();
+  assert.equal(attempts, 1);
+  assert.equal(h.read().stashes[0].restoreFailureCount, 2);
+  assert.equal(h.read().stashes[0].nextRetryAt, h.now() + 300_000);
+  await h.reload();
+  assert.equal(attempts, 1);
+});
+
+test('a successful retry removes its record and alarm without opening twice', async () => {
+  const h = await harness();
+  h.seed([{ ...item('retry', 0), restoreFailureCount: 1, nextRetryAt: h.now() + 60_000 }]);
+  await h.reconcile();
+  h.advance(60_000);
+  await h.fireAlarm('retry');
+  await h.reconcile();
+  assert.equal(h.created.length, 1);
+  assert.equal(h.read().stashes.length, 0);
+  assert.equal(h.alarms.size, 0);
+});
+
+test('missing and stale retry alarms are repaired without using the original overdue time', async () => {
+  const h = await harness();
+  const nextRetryAt = h.now() + 300_000;
+  h.seed([{ ...item('retry', 0), restoreFailureCount: 2, nextRetryAt }]);
+  await h.reconcile();
+  assert.equal(h.created.length, 0);
+  assert.equal(h.alarms.get('restore-stash:retry').scheduledTime, nextRetryAt);
+  h.alarms.set('restore-stash:retry', { name: 'restore-stash:retry', scheduledTime: 123 });
+  await h.reconcile();
+  assert.equal(h.alarms.get('restore-stash:retry').scheduledTime, nextRetryAt);
+  await h.listeners.alarm({ name: 'restore-stash:retry' });
+  assert.equal(h.created.length, 0);
+  assert.equal(h.read().stashes[0].restoreFailureCount, 2, 'stale early events must not consume the budget');
+});
+
+test('cancellation of a pending retry prevents late alarms and reload from reopening it', async () => {
+  const h = await harness();
+  h.seed([{ ...item('retry', 0), restoreFailureCount: 1, nextRetryAt: h.now() + 60_000 }]);
+  await h.reconcile();
+  assert((await h.send('cancel-stash', { stashId: 'retry' })).ok);
+  h.advance(60_000);
+  await h.fireAlarm('retry');
+  await h.reload();
+  assert.equal(h.created.length, 0);
+  assert.equal(h.read().stashes.length, 0);
+  assert.equal(h.alarms.size, 0);
+});
+
+test('a saved retry whose alarm cannot be created is recovered on reload', async () => {
+  const h = await harness();
+  h.seed([item('retry', 0)]);
+  const create = h.browser.tabs.create;
+  h.browser.tabs.create = async () => { throw new Error('creation failed'); };
+  const alarm = h.browser.alarms.create;
+  h.browser.alarms.create = async () => { throw new Error('alarm service unavailable'); };
+  const result = await h.send('restore-stash-now', { stashId: 'retry' });
+  assert(!result.ok && !result.retryScheduled);
+  assert.equal(h.read().stashes[0].nextRetryAt, h.now() + 60_000);
+  h.browser.alarms.create = alarm;
+  h.browser.tabs.create = create;
+  await h.reload();
+  assert.equal(h.created.length, 0);
+  assert.equal(h.alarms.get('restore-stash:retry').scheduledTime, h.now() + 60_000);
+});
+
+test('failure to persist retry metadata keeps the attempt uncertain without arming a retry', async () => {
+  const h = await harness();
+  h.seed([item('retry', 0)]);
+  h.browser.tabs.create = async () => { throw new Error('creation failed'); };
+  const set = h.browser.storage.local.set;
+  h.browser.storage.local.set = async value => {
+    if (value.backstash.stashes.some(stash => stash.restoreFailureCount > 0)) throw new Error('retry write failed');
+    return set(value);
+  };
+  await h.reconcile();
+  assert.equal(h.read().stashes[0].status, 'restoring');
+  assert.equal(h.alarms.size, 0);
+  h.browser.storage.local.set = set;
+  await h.reload();
+  assert.equal(h.alarms.size, 0);
+  assert((await h.send('restore-stash-now', { stashId: 'retry' })).requiresConfirmation);
+});
+
+test('retry alarms cannot create again for confirmed or uncertain recovery records', async () => {
+  const h = await harness();
+  h.seed([
+    { ...item('completed', 0), status: 'restored', restoredTabId: 42, restoreFailureCount: 1, nextRetryAt: h.now() - 1 },
+    { ...item('uncertain', 0), status: 'restoring', restoreFailureCount: 1, nextRetryAt: h.now() - 1 },
+  ]);
+  await h.fireAlarm('completed');
+  await h.fireAlarm('uncertain');
+  assert.equal(h.created.length, 0);
+  assert.deepEqual(h.read().stashes.map(stash => stash.id), ['uncertain']);
+});
+
+test('failure to clear an exhausted alarm cannot restart the automatic retry budget', async () => {
+  const h = await harness();
+  h.seed([{ ...item('retry', 0), restoreFailureCount: 3, nextRetryAt: h.now() - 1 }]);
+  let attempts = 0;
+  h.browser.tabs.create = async () => { attempts += 1; throw new Error('creation failed'); };
+  h.browser.alarms.clear = async () => { throw new Error('clear failed'); };
+  await h.fireAlarm('retry');
+  await h.reconcile();
+  await h.fireAlarm('retry');
+  assert.equal(attempts, 1);
+  assert.equal(h.read().stashes[0].restoreFailureCount, 4);
+});
+
+test('the stash list orders pending retries by their next due time', async () => {
+  const h = await harness();
+  h.seed([
+    { ...item('retry', 0), restoreFailureCount: 1, nextRetryAt: h.now() + 300_000 },
+    item('ordinary', h.now() + 60_000),
+  ]);
+  const list = await h.send('list-stashes');
+  assert.deepEqual(Array.from(list, stash => stash.id), ['ordinary', 'retry']);
+  assert.equal(list[1].nextRetryAt, h.now() + 300_000);
+});
 
 test('restore progress must persist before Firefox is asked to create a tab', async () => {
   const h = await harness();
@@ -439,6 +632,9 @@ test('failed restore retains stash and succeeds on a later reconciliation', asyn
   await h.reconcile();
   assert.equal(h.read().stashes.length, 1);
   h.browser.tabs.create = create;
+  await h.reconcile();
+  assert.equal(h.created.length, 0, 'reconciliation must respect retry timing');
+  h.advance(60_000);
   await h.reconcile();
   assert.equal(h.read().stashes.length, 0);
 });

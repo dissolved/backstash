@@ -6,12 +6,13 @@ the stash must not cause another automatic tab creation.
 
 The existing per-stash `status` and `restoredTabId` fields record progress. The
 storage root and schema version remain unchanged; legacy records without a
-status are treated as scheduled. No URL/title matching or new permission is
-needed.
+status are treated as scheduled. Optional `restoreFailureCount` and `nextRetryAt`
+fields record the retry budget and timing; missing fields mean no prior failure.
+No URL/title matching or new permission is needed.
 
 | Stored status | Meaning | Allowed recovery |
 | --- | --- | --- |
-| `scheduled` or absent | No pending creation attempt | Normal restore; future bounded retry/backoff may apply |
+| `scheduled` or absent | No pending creation attempt | Restore when due; known creation failures use bounded automatic retries |
 | `restoring` | Intent persisted; creation outcome is unconfirmed | Keep visible for review; only an explicit **Restore again** action may create another tab |
 | `restored` | Firefox returned a created tab; cleanup is pending | Retry alarm/storage cleanup only, even if the original tab has since closed |
 
@@ -19,8 +20,9 @@ needed.
 
 1. Persist `restoring` before calling `tabs.create`. If saving progress fails, do
    not request tab creation.
-2. If tab creation rejects, return the stash to `scheduled`. If that reset cannot
-   be saved, leave the uncertain record for review.
+2. If tab creation rejects, return the stash to `scheduled` with its incremented
+   failure count and next retry time, then arm its retry alarm. If that state
+   cannot be saved, leave the uncertain record for review without arming a retry.
 3. If creation succeeds, retain an in-memory completion receipt immediately, then
    persist `restored` with the returned tab ID. If that write fails, the live
    receipt still prevents another creation in the current background context.
@@ -48,7 +50,36 @@ an open tab. Confirmed records offer **Finish cleanup**, which never creates a t
 
 This favors avoiding automatic duplicates when the result cannot be established.
 The APIs do not provide a transaction spanning tab creation, alarms, and storage.
-Actual process/power-loss durability, source-tab closure failure recovery, and
-automatic retry delays remain separate work. Tests inject API failures in Node
-and seed durable recovery states across a real Firefox extension reload; they
-do not simulate a physical disk or power failure.
+Actual process/power-loss durability and source-tab closure failure recovery
+remain separate work. Tests inject API failures in Node and seed durable recovery
+states across a real Firefox extension reload; they do not simulate a physical
+disk or power failure.
+
+## Automatic retries
+
+Only known creation failures receive automatic retries. Delays are measured from
+each failed attempt, so a late retry never triggers a burst of catch-up attempts.
+
+| Consecutive known failures | Next automatic action |
+| --- | --- |
+| 1 | Retry after 1 minute |
+| 2 | Retry after 5 minutes |
+| 3 | Retry after 15 minutes |
+| 4 | Stop; retain the stash for manual Restore |
+
+The original `wakeAt` stays intact. Reconciliation uses `nextRetryAt` for failed
+scheduled stashes, repairs missing or incorrectly timed alarms, and runs one
+overdue attempt. Reloading does not reset the budget or bypass the delay. Early
+or stale alarms cannot force another creation before it is due or after
+exhaustion. Completion receipts/records remain cleanup-only; uncertain records
+still require explicit review.
+
+A manual Restore, including restore-all, can run before the next retry time or
+after exhaustion. Its failure starts a fresh cycle with the one-minute delay.
+The popup displays pending retry timing or exhaustion. Delete removes the stash
+and its retry alarm. A successful creation clears retry timing before cleanup.
+
+If retry metadata saves but arming its alarm fails, the error response offers
+manual Restore; the saved retry timing can be repaired on the next background
+load. The code does not claim the retry is armed in that case. Failure to clear
+an exhausted alarm cannot restart its budget.

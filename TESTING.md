@@ -9,13 +9,17 @@ npm run lint
 
 Node tests exercise production scripts with isolated browser interfaces, plus pure duration/preset and restore-decision logic. Coverage includes window selection/index clamping, command routing, same-stash restore deduplication, reconciliation/idempotence, failed-restore recovery, persistence before tab closure, storage-write failure, cancellation, partial restore-all failure, and notification failure/settings. Deferred API responses force overlap between distinct restores, restore-all, cancellation, stash/repeat-last, and reconciliation, checking tab counts, retained state, alarm cleanup, queue recovery after rejection, and captured target identity even when focus changes or a source tab closes. Fake browser interfaces cannot establish actual Firefox API behavior.
 
+An injected clock checks the 1/5/15-minute retry policy without waiting: due-time
+guards, exhaustion, reload persistence, manual cycle reset, successful recovery,
+cancellation, stale alarms, scheduling failures, and ordering in the stash list.
+
 ## Automated Firefox checks
 
 Following [Tabometer's approach](https://github.com/dissolved/tabometer), the runner uses [Mozilla Marionette](https://firefox-source-docs.mozilla.org/python/marionette_driver.html), a disposable profile, and loopback fixture pages. Install Firefox desktop and [uv](https://docs.astral.sh/uv/), then run:
 
 ```sh
 npm run test:firefox
-# Quicker partial run:
+# Quicker partial run (skips both real restore and retry alarm waits):
 npm run test:firefox -- --skip-alarm
 # Override the binary or show the test browser:
 uv run scripts/firefox-checks.py --firefox /path/to/firefox --headed
@@ -42,6 +46,7 @@ The runner enables remote system access only in the test process. `--restart` re
 | Popup sorted list, restore, delete, restore all | Operate actual production DOM controls and verify storage, alarms, and tabs |
 | Concurrent messages | Overlap cancel, individual/bulk restores, and a new stash; verify exactly one tab per restored stash, no cancelled tab, retained new stash/repeat-last state, and matching alarms |
 | Restore recovery | Seed completed/uncertain progress, test popup cleanup, reload the extension, then verify cleanup-only reconciliation, suppressed uncertain retries, bulk feedback, explicit retry, and dismissal without closing an open tab |
+| Bounded restore retries | Actual rejected tab creation schedules the first retry; seeded pending/exhausted/overdue retries survive reload with correct alarms and popup actions. Full runs also wait for a real one-minute retry after fixing the rejected fixture URL |
 | Extension reload reconciliation | Actual add-on reload with missing/orphan alarms and an overdue stash; verify exactly one overdue tab |
 | Background lifecycle | Observe natural suspension from the parent process, then verify message wake preserves stash/state and recreates its missing alarm |
 | Scheduled restore | Real one-minute alarm and elapsed wall time; explicitly skipped with `--skip-alarm` |
@@ -60,6 +65,28 @@ Popup tests render the production popup page in a browser tab and suppress only 
 Do not repeat the automated matrix manually after a passing run unless diagnosing a browser/profile-specific issue. Extend the suite when adding behavior; retain manual checks only where automation does not establish the result.
 
 ## Recorded results
+
+### 2026-10-14 — Bounded automatic retries
+
+- All 63 Node tests passed; ESLint and `git diff --check` passed. Twelve new retry
+  cases exercise the full delay/budget policy with a controlled clock. Running
+  the updated lifecycle tests against the preceding implementation exposes 11
+  failing cases, including the updated reconciliation delay expectation.
+- The quick Firefox run passed with both real alarm waits explicitly skipped.
+  The final full `npm run test:firefox` run passed on headless macOS Firefox
+  158.0, including an ordinary real one-minute restore and an actual rejected
+  `tabs.create` followed by its production one-minute retry alarm. The fixture URL
+  is corrected after failure without changing the retry alarm or its timing.
+- Seeded pending, exhausted, and overdue retry records were checked across an
+  actual extension reload: pending timing/budget survived, the overdue retry
+  restored exactly once, exhaustion prevented rearming, and popup actions
+  cancelled a pending retry and manually restored an exhausted stash. Existing
+  recovery, concurrency, popup, container/group/window, reload, and suspension/
+  message-wake scenarios also passed.
+- The 5- and 15-minute delays are covered by deterministic Node tests; the browser
+  suite waits for the first one-minute retry. Browser restart was explicitly
+  skipped. OS sleep/wake, physical disk/power loss, and native presentation remain
+  unverified.
 
 ### 2026-10-14 — Restore recovery
 

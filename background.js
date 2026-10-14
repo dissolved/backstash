@@ -1,4 +1,5 @@
 const RESTORE_EVENT_PREFIX = "restore-stash:";
+const RESTORE_RETRY_DELAYS = [60_000, 5 * 60_000, 15 * 60_000];
 const restoreOperations = new Map();
 // Protect confirmed creations if persisting their completion record fails.
 // Durable "restoring" records cover uncertainty after this context disappears.
@@ -71,8 +72,21 @@ function isSupportedTabUrl(url) {
 
 async function createRestoreAlarm(stashItem) {
   await browser.alarms.create(makeAlarmName(stashItem.id), {
-    when: stashItem.wakeAt,
+    when: getRestoreDueAt(stashItem),
   });
+}
+
+function getRestoreFailureCount(stashItem) {
+  return Number.isSafeInteger(stashItem.restoreFailureCount) && stashItem.restoreFailureCount > 0
+    ? stashItem.restoreFailureCount : 0;
+}
+
+function getRestoreDueAt(stashItem) {
+  const failures = getRestoreFailureCount(stashItem);
+  if (!failures) return stashItem.wakeAt;
+  if (failures > RESTORE_RETRY_DELAYS.length) return null;
+  return Number.isFinite(stashItem.nextRetryAt) && stashItem.nextRetryAt > 0
+    ? stashItem.nextRetryAt : null;
 }
 
 async function clearRestoreAlarm(itemId) {
@@ -295,6 +309,7 @@ async function finishRestore(stashes, stashItem, receipt) {
     if (stashItem.status !== "restored") {
       await setStashes(stashes.map(item => item.id === stashItem.id ? {
         ...item, status: "restored", restoredTabId: receipt.restoredTabId,
+        nextRetryAt: null,
       } : item));
     }
     await clearRestoreAlarm(stashItem.id);
@@ -307,7 +322,7 @@ async function finishRestore(stashes, stashItem, receipt) {
   }
 }
 
-async function performRestoreStashById(stashId, confirmRestore = false) {
+async function performRestoreStashById(stashId, { confirmRestore = false, automatic = false } = {}) {
   const stashes = await getStashes();
   const stashItem = stashes.find((item) => item.id === stashId);
 
@@ -322,16 +337,24 @@ async function performRestoreStashById(stashId, confirmRestore = false) {
   } : null);
   if (receipt) return finishRestore(stashes, stashItem, receipt);
 
-  if (stashItem.status === "restoring" && !confirmRestore) {
+  if (stashItem.status === "restoring" && (!confirmRestore || automatic)) {
     return {
       ok: false, requiresConfirmation: true,
       error: "A previous restore may have opened this tab. Check your tabs before choosing Restore again.",
     };
   }
 
+  if (automatic) {
+    const dueAt = getRestoreDueAt(stashItem);
+    if (dueAt === null || dueAt > Date.now()) {
+      return { ok: false, retryPending: dueAt !== null, retryExhausted: dueAt === null };
+    }
+  }
+
   try {
     await setStashes(stashes.map(item => item.id === stashId ? {
       ...item, status: "restoring", restoredTabId: null,
+      nextRetryAt: null,
     } : item));
   } catch (error) {
     console.error("Could not save restore progress:", error);
@@ -340,15 +363,44 @@ async function performRestoreStashById(stashId, confirmRestore = false) {
 
   const creation = await restoreStashItem(stashItem);
   if (!creation.ok) {
+    // Only a known creation failure earns a retry. Manual Restore (including
+    // restore-all) starts a fresh cycle; automatic attempts consume its budget.
+    const failures = (automatic ? getRestoreFailureCount(stashItem) : 0) + 1;
+    const delay = RESTORE_RETRY_DELAYS[failures - 1];
+    const failedItem = {
+      ...stashItem, status: "scheduled", restoredTabId: null,
+      restoreFailureCount: failures,
+      nextRetryAt: delay === undefined ? null : Date.now() + delay,
+    };
     try {
-      await setStashes(stashes.map(item => item.id === stashId ? {
-        ...item, status: "scheduled", restoredTabId: null,
-      } : item));
+      await setStashes(stashes.map(item => item.id === stashId ? failedItem : item));
     } catch (error) {
       // Leave the durable intent intact; a future context must request review.
       console.warn("Could not reset failed restore progress:", error);
+      return { ok: false, error: "Could not reopen this tab or save its retry schedule. Check the stash list before trying again." };
     }
-    return { ok: false, error: "Could not reopen this tab. The stash has been retained." };
+    try {
+      if (failedItem.nextRetryAt !== null) {
+        await createRestoreAlarm(failedItem);
+      } else {
+        await clearRestoreAlarm(stashId);
+      }
+    } catch (error) {
+      console.warn("Could not update the retry alarm:", error);
+      return {
+        ok: false, retryExhausted: failedItem.nextRetryAt === null,
+        error: failedItem.nextRetryAt === null
+          ? "Automatic retries have stopped. Choose Restore to try again."
+          : "Could not reopen this tab or schedule its retry. Choose Restore to try again; saved retry timing will be checked when Backstash next starts.",
+      };
+    }
+    return {
+      ok: false, retryScheduled: failedItem.nextRetryAt !== null,
+      retryExhausted: failedItem.nextRetryAt === null,
+      error: failedItem.nextRetryAt !== null
+        ? "Could not reopen this tab. An automatic retry is scheduled."
+        : "Automatic retries have stopped. Choose Restore to try again.",
+    };
   }
 
   const { restoredTab } = creation;
@@ -369,13 +421,13 @@ async function performRestoreStashById(stashId, confirmRestore = false) {
 /**
  * Restore a stashed tab when its alarm fires.
  */
-async function restoreStashById(stashId, confirmRestore = false) {
+async function restoreStashById(stashId, options = {}) {
   const existingRestore = restoreOperations.get(stashId);
   if (existingRestore) {
     return existingRestore;
   }
 
-  const restorePromise = enqueueMutation(() => performRestoreStashById(stashId, confirmRestore)).finally(() => {
+  const restorePromise = enqueueMutation(() => performRestoreStashById(stashId, options)).finally(() => {
     restoreOperations.delete(stashId);
   });
   restoreOperations.set(stashId, restorePromise);
@@ -432,7 +484,7 @@ async function performReconcileScheduledStashes() {
   const stashes = await getStashes();
   const alarms = await getRestoreAlarms();
   const stashIds = new Set(stashes.map((stashItem) => stashItem.id));
-  const alarmNames = new Set(alarms.map((alarm) => alarm.name));
+  const alarmsByName = new Map(alarms.map(alarm => [alarm.name, alarm]));
 
   let recreatedAlarmCount = 0;
   let clearedAlarmCount = 0;
@@ -453,16 +505,30 @@ async function performReconcileScheduledStashes() {
       }
       continue;
     }
-    if (stashItem.wakeAt <= Date.now()) {
+    const dueAt = getRestoreDueAt(stashItem);
+    if (dueAt === null) {
+      try {
+        await clearRestoreAlarm(stashItem.id);
+      } catch (error) {
+        console.warn("Could not clear an exhausted retry alarm:", error);
+      }
+      continue;
+    }
+    if (dueAt <= Date.now()) {
       dueRestoreCount += 1;
-      await performRestoreStashById(stashItem.id);
+      await performRestoreStashById(stashItem.id, { automatic: true });
       continue;
     }
 
     const alarmName = makeAlarmName(stashItem.id);
-    if (!alarmNames.has(alarmName)) {
-      await createRestoreAlarm(stashItem);
-      recreatedAlarmCount += 1;
+    const alarm = alarmsByName.get(alarmName);
+    if (!alarm || (getRestoreFailureCount(stashItem) > 0 && alarm.scheduledTime !== dueAt)) {
+      try {
+        await createRestoreAlarm(stashItem);
+        recreatedAlarmCount += 1;
+      } catch (error) {
+        console.warn("Could not recreate a restore alarm:", error);
+      }
     }
   }
 
@@ -490,13 +556,15 @@ async function listStashes() {
   const stashes = await getStashes();
   return stashes
     .slice()
-    .sort((left, right) => left.wakeAt - right.wakeAt)
+    .sort((left, right) => (getRestoreDueAt(left) ?? left.wakeAt) - (getRestoreDueAt(right) ?? right.wakeAt))
     .map((stashItem) => ({
       id: stashItem.id,
       title: stashItem.title,
       url: stashItem.url,
       wakeAt: stashItem.wakeAt,
       status: completedRestores.has(stashItem.id) ? "restored" : (stashItem.status ?? "scheduled"),
+      nextRetryAt: getRestoreFailureCount(stashItem) > 0 ? getRestoreDueAt(stashItem) : null,
+      retryExhausted: getRestoreFailureCount(stashItem) > 0 && getRestoreDueAt(stashItem) === null,
     }));
 }
 
@@ -588,7 +656,7 @@ browser.runtime.onMessage.addListener((message) => {
   }
 
   if (message?.type === "restore-stash-now") {
-    return restoreStashById(message.stashId, message.confirmRestore === true);
+    return restoreStashById(message.stashId, { confirmRestore: message.confirmRestore === true });
   }
 
   if (message?.type === "cancel-stash") {
@@ -623,7 +691,7 @@ browser.alarms.onAlarm.addListener(async (alarm) => {
   const stashID = alarm.name.slice(RESTORE_EVENT_PREFIX.length);
 
   try {
-    await restoreStashById(stashID);
+    await restoreStashById(stashID, { automatic: true });
   } catch (error) {
     console.error("Failed while handling alarm:", alarm.name, error);
   }

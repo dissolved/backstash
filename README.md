@@ -14,6 +14,10 @@ Unlike tab suspension tools, Backstash removes tabs entirely and brings them bac
 - Optional notifications when tabs are restored
 - Keyboard-first workflow with presets and shorthand duration entry
 
+Failed restores get up to three automatic retries, waiting 1, 5, and 15 minutes
+between attempts. After that, the tab stays saved for manual restoration.
+Choosing **Restore** starts a fresh retry cycle if the attempt fails again.
+
 If a restore is interrupted, the stash list may offer **Finish cleanup** for a
 tab already reopened, or **Restore again** when the outcome could not be
 confirmed. Check your open tabs before choosing **Restore again**. **Delete**
@@ -73,7 +77,7 @@ npm test
 ## 🗺 Roadmap (high-level)
 
 * Extension settings and scheduling polish
-* Restore retry and partial-failure recovery (startup reconciliation and operation coordination are implemented)
+* Stash creation/source-closure failure recovery (restore retries, restore recovery, and operation coordination are implemented)
 * Absolute date/time stashing
 * Richer stash management actions
 * Notification batching
