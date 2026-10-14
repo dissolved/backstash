@@ -117,6 +117,9 @@ function createBackgroundHarness() {
     setCurrentStashes(stashes) {
       currentStashes = stashes;
     },
+    getCurrentStashes() {
+      return currentStashes;
+    },
     releaseRestore() {
       releaseRestore();
     },
@@ -165,7 +168,7 @@ test("restoreStashById collapses concurrent restores for the same stash", async 
     ]);
 
     assert.equal(harness.stats.tabsCreateCalls, 1);
-    assert.equal(harness.stats.setStashesCalls, 1);
+    assert.deepEqual(harness.getCurrentStashes(), []);
     assert.deepEqual(harness.stats.clearedAlarmNames, [
       harness.background.makeAlarmName(stashItem.id),
     ]);

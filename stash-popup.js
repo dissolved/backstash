@@ -43,6 +43,11 @@ function renderStashes(stashes) {
     const meta = document.createElement("p");
     meta.className = "stash-meta";
     meta.textContent = `Restores ${formatWakeAt(stash.wakeAt)}`;
+    if (stash.status === "restoring") {
+      meta.textContent = "A previous restore may have opened this tab. Check your tabs before restoring again.";
+    } else if (stash.status === "restored") {
+      meta.textContent = "Tab already restored. Cleanup is still pending.";
+    }
 
     const footer = document.createElement("div");
     footer.className = "stash-footer";
@@ -54,6 +59,8 @@ function renderStashes(stashes) {
     restoreButton.type = "button";
     restoreButton.className = "stash-action-link";
     restoreButton.textContent = "Restore";
+    if (stash.status === "restoring") restoreButton.textContent = "Restore again";
+    if (stash.status === "restored") restoreButton.textContent = "Finish cleanup";
     restoreButton.addEventListener("click", async () => {
       restoreButton.disabled = true;
       cancelButton.disabled = true;
@@ -63,16 +70,19 @@ function renderStashes(stashes) {
         const response = await browser.runtime.sendMessage({
           type: "restore-stash-now",
           stashId: stash.id,
+          confirmRestore: stash.status === "restoring",
         });
 
         if (!response?.ok) {
-          setStatus("Backstash could not restore that stash.");
           restoreButton.disabled = false;
           cancelButton.disabled = false;
+          await refreshStashes();
+          setStatus(response?.error ?? "Backstash could not restore that stash.");
           return;
         }
 
         await refreshStashes();
+        if (response.cleanupPending) setStatus("Tab restored. Cleanup is still pending.");
       } catch (error) {
         setStatus("Backstash could not restore that stash.");
         restoreButton.disabled = false;
@@ -185,12 +195,17 @@ restoreAllButton.addEventListener("click", async () => {
     });
 
     if (!response?.ok && response?.restoredCount === 0) {
-      setStatus("No stashed tabs are available to restore.");
-      restoreAllButton.disabled = false;
+      await refreshStashes();
+      setStatus(response.failedCount > 0
+        ? "Some stashes could not be restored. Check the list for recovery actions."
+        : "No stashed tabs are available to restore.");
       return;
     }
 
     await refreshStashes();
+    if (response?.failedCount > 0 || response?.cleanupPendingCount > 0) {
+      setStatus("Some stashes still need attention. Check the list for recovery actions.");
+    }
   } catch (error) {
     setStatus("Backstash could not restore all stashes.");
     restoreAllButton.disabled = false;

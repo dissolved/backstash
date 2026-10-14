@@ -39,12 +39,16 @@ async function harness() {
     runtime: { onMessage: event('message'), onStartup: event('startup') },
     action: { openPopup: async () => {} },
   };
-  const context = vm.createContext({ browser, console: { log() {}, warn() {}, error() {} } });
-  for (const file of ['constants.js', 'storage.js', 'restore-logic.js', 'stash-presets.js', 'background.js']) {
-    vm.runInContext(fs.readFileSync(path.join(__dirname, '..', file), 'utf8'), context, { filename: file });
+  let context;
+  async function loadBackground() {
+    context = vm.createContext({ browser, console: { log() {}, warn() {}, error() {} } });
+    for (const file of ['constants.js', 'storage.js', 'restore-logic.js', 'stash-presets.js', 'background.js']) {
+      vm.runInContext(fs.readFileSync(path.join(__dirname, '..', file), 'utf8'), context, { filename: file });
+    }
+    // Finish automatic reconciliation, retaining storage but replacing memory.
+    await new Promise(resolve => setImmediate(resolve));
   }
-  // Let the automatic initial reconciliation finish before seeding scenarios.
-  await new Promise(resolve => setImmediate(resolve));
+  await loadBackground();
   return {
     browser, alarms, created, removed, notifications, listeners,
     send: (type, fields = {}) => listeners.message({ type, ...fields }),
@@ -52,6 +56,7 @@ async function harness() {
     selectTab(id) { activeTabId = id; },
     seed(stashes, settings = {}) { stored = { backstash: { schemaVersion: 1, stashes, settings, state: {} } }; },
     reconcile: () => vm.runInContext('reconcileScheduledStashes()', context),
+    reload: loadBackground,
   };
 }
 
@@ -83,6 +88,181 @@ function pauseRestore(h) {
   };
   return { entered: entered.promise, release: release.resolve };
 }
+
+test('restore progress must persist before Firefox is asked to create a tab', async () => {
+  const h = await harness();
+  h.seed([item('saved')]);
+  const set = h.browser.storage.local.set;
+  h.browser.storage.local.set = async () => { throw new Error('disk full'); };
+  assert(!(await h.send('restore-stash-now', { stashId: 'saved' })).ok);
+  assert.equal(h.created.length, 0);
+  assert.equal(h.read().stashes.length, 1);
+  h.browser.storage.local.set = set;
+  const create = h.browser.tabs.create;
+  h.browser.tabs.create = async options => {
+    assert.equal(h.read().stashes[0].status, 'restoring');
+    return create(options);
+  };
+  assert((await h.send('restore-stash-now', { stashId: 'saved' })).ok);
+});
+
+test('an alarm cleanup failure never turns a successful creation into another restore', async () => {
+  const h = await harness();
+  h.seed([item('saved')]);
+  h.alarms.set('restore-stash:saved', { name: 'restore-stash:saved' });
+  const clear = h.browser.alarms.clear;
+  h.browser.alarms.clear = async () => { throw new Error('alarm service unavailable'); };
+  const result = await h.send('restore-stash-now', { stashId: 'saved' });
+  assert(result.ok && result.cleanupPending);
+  assert.equal(h.read().stashes[0].status, 'restored');
+  assert.equal(h.created.length, 1);
+  await h.send('restore-stash-now', { stashId: 'saved' });
+  await h.send('restore-all-stashes');
+  await h.reconcile();
+  assert.equal(h.created.length, 1);
+  assert.equal(h.notifications.length, 1, 'cleanup must not repeat notifications');
+  h.browser.alarms.clear = clear;
+  assert((await h.send('restore-stash-now', { stashId: 'saved' })).ok);
+  assert.equal(h.read().stashes.length, 0);
+  assert.equal(h.alarms.size, 0);
+});
+
+test('failed removal persists a completed restore across background reload and later cleanup', async () => {
+  const h = await harness();
+  h.seed([item('saved')]);
+  const set = h.browser.storage.local.set;
+  h.browser.storage.local.set = async value => {
+    if (value.backstash.stashes.length === 0) throw new Error('removal write failed');
+    return set(value);
+  };
+  assert((await h.send('restore-stash-now', { stashId: 'saved' })).cleanupPending);
+  assert.equal(h.read().stashes[0].status, 'restored');
+  await h.reload();
+  await h.send('restore-all-stashes');
+  assert.equal(h.created.length, 1);
+  assert.equal(h.read().stashes[0].status, 'restored');
+  h.browser.storage.local.set = set;
+  await h.reconcile();
+  assert.equal(h.created.length, 1);
+  assert.equal(h.read().stashes.length, 0);
+});
+
+test('failed completion write uses live receipt, then requires review after losing background memory', async () => {
+  const h = await harness();
+  h.seed([item('saved')]);
+  const set = h.browser.storage.local.set;
+  h.browser.storage.local.set = async value => {
+    if (value.backstash.stashes.some(stash => stash.status === 'restored')) throw new Error('completion write failed');
+    return set(value);
+  };
+  assert((await h.send('restore-stash-now', { stashId: 'saved' })).cleanupPending);
+  assert.equal(h.read().stashes[0].status, 'restoring');
+  assert.equal((await h.send('list-stashes'))[0].status, 'restored');
+  await h.send('restore-stash-now', { stashId: 'saved', confirmRestore: true });
+  assert.equal(h.created.length, 1, 'live receipt overrides even an explicit retry');
+  await h.reload();
+  assert.equal((await h.send('list-stashes'))[0].status, 'restoring');
+  const result = await h.send('restore-stash-now', { stashId: 'saved' });
+  assert(!result.ok && result.requiresConfirmation);
+  assert.equal((await h.send('restore-all-stashes')).failedCount, 1);
+  await h.reconcile();
+  assert.equal(h.created.length, 1, 'uncertain outcome must not automatically reopen');
+  assert.equal(h.alarms.size, 0);
+  h.browser.storage.local.set = set;
+  assert((await h.send('cancel-stash', { stashId: 'saved' })).ok);
+  assert.equal(h.created.length, 1, 'discarding an uncertain record leaves the opened tab alone');
+});
+
+test('a future uncertain restore is not rearmed and only an explicit retry may create a tab', async () => {
+  const h = await harness();
+  h.seed([{ ...item('uncertain'), status: 'restoring' }]);
+  await h.reconcile();
+  assert.equal(h.alarms.size, 0);
+  assert.equal(h.created.length, 0);
+  assert(!(await h.send('restore-stash-now', { stashId: 'uncertain', confirmRestore: 'true' })).ok);
+  assert((await h.send('restore-stash-now', { stashId: 'uncertain', confirmRestore: true })).ok);
+  assert.equal(h.created.length, 1);
+  assert.equal(h.read().stashes.length, 0);
+});
+
+test('a completed record is cleanup-only even when its tab ID is stale or its due time is future', async () => {
+  const h = await harness();
+  h.seed([{ ...item('completed'), status: 'restored', restoredTabId: 999 }]);
+  h.browser.tabs.get = async () => { assert.fail('completed tab identity must not be interpreted across restart'); };
+  await h.reload();
+  assert.equal(h.created.length, 0);
+  assert.equal(h.read().stashes.length, 0);
+});
+
+test('a known creation failure resets progress and can be retried normally', async () => {
+  const h = await harness();
+  h.seed([item('saved')]);
+  const create = h.browser.tabs.create;
+  h.browser.tabs.create = async () => { throw new Error('window unavailable'); };
+  assert(!(await h.send('restore-stash-now', { stashId: 'saved' })).ok);
+  assert.equal(h.read().stashes[0].status, 'scheduled');
+  h.browser.tabs.create = create;
+  assert((await h.send('restore-stash-now', { stashId: 'saved' })).ok);
+  assert.equal(h.created.length, 1);
+});
+
+test('a failed creation whose progress cannot be reset remains safe after reload', async () => {
+  const h = await harness();
+  h.seed([item('saved')]);
+  const create = h.browser.tabs.create;
+  h.browser.tabs.create = async () => { throw new Error('creation failed'); };
+  const set = h.browser.storage.local.set;
+  h.browser.storage.local.set = async value => {
+    if (value.backstash.stashes.some(stash => stash.status === 'scheduled')) throw new Error('reset failed');
+    return set(value);
+  };
+  assert(!(await h.send('restore-stash-now', { stashId: 'saved' })).ok);
+  assert.equal(h.read().stashes[0].status, 'restoring');
+  h.browser.tabs.create = create;
+  h.browser.storage.local.set = set;
+  await h.reload();
+  assert((await h.send('restore-stash-now', { stashId: 'saved' })).requiresConfirmation);
+  assert.equal(h.created.length, 0);
+});
+
+test('restore-all continues after cleanup failure and reports it separately from creation failure', async () => {
+  const h = await harness();
+  h.seed([item('cleanup'), item('good'), item('bad')]);
+  const clear = h.browser.alarms.clear;
+  h.browser.alarms.clear = async name => {
+    if (name === 'restore-stash:cleanup') throw new Error('cleanup failed');
+    return clear(name);
+  };
+  const create = h.browser.tabs.create;
+  h.browser.tabs.create = async options => {
+    if (options.url.endsWith('/bad')) throw new Error('creation failed');
+    return create(options);
+  };
+  const result = await h.send('restore-all-stashes');
+  assert.equal(result.restoredCount, 2);
+  assert.equal(result.failedCount, 1);
+  assert.equal(result.cleanupPendingCount, 1);
+  assert.equal(h.created.length, 2);
+  assert.deepEqual(h.read().stashes.map(stash => [stash.id, stash.status]), [['cleanup', 'restored'], ['bad', 'scheduled']]);
+});
+
+test('storage reads failing after creation cannot turn successful creation into another restore', async () => {
+  const h = await harness();
+  h.seed([item('saved')]);
+  const get = h.browser.storage.local.get;
+  h.browser.storage.local.get = async () => {
+    if (h.created.length) throw new Error('storage unavailable');
+    return get();
+  };
+  const result = await h.send('restore-stash-now', { stashId: 'saved' });
+  assert(result.ok && result.cleanupPending);
+  assert.equal(h.created.length, 1);
+  assert.equal(h.read().stashes[0].status, 'restoring');
+  h.browser.storage.local.get = get;
+  await h.reconcile();
+  assert.equal(h.created.length, 1);
+  assert.equal(h.read().stashes.length, 0);
+});
 
 test('overlapping individual restores do not resurrect either stash', async () => {
   const h = await harness();

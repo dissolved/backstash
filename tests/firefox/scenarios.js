@@ -210,6 +210,62 @@ export async function concurrency(url) {
   await browser.tabs.remove(tabs.filter(tab => [first.item.url, second.item.url].includes(tab.url)).map(tab => tab.id));
 }
 
+export async function prepareRestoreRecovery(url) {
+  await reset();
+  const token = crypto.randomUUID();
+  const completed = (await stash(`${url}?completed=${token}`)).item;
+  const uncertainOpen = (await stash(`${url}?uncertain-open=${token}`)).item;
+  const uncertainRetry = (await stash(`${url}?uncertain-retry=${token}`)).item;
+  const opened = await browser.tabs.create({ url: completed.url, active: false });
+  await browser.tabs.create({ url: uncertainOpen.url, active: false });
+  const stored = await data();
+  for (const item of stored.stashes) {
+    item.status = item.id === completed.id ? 'restored' : 'restoring';
+    item.restoredTabId = item.id === completed.id ? opened.id : null;
+    if (item.id === uncertainOpen.id) item.wakeAt = 0;
+  }
+  await browser.storage.local.set({ backstash: stored });
+  await window.refreshStashes();
+  const items = await list();
+  const row = document.querySelectorAll('.stash-item')[items.findIndex(item => item.id === completed.id)];
+  assert(row.querySelector('button').textContent === 'Finish cleanup', 'Completed record offered another restore');
+  row.querySelector('button').click();
+  await waitFor(() => document.querySelectorAll('.stash-item').length === 2, 'completed popup cleanup');
+  assert((await browser.tabs.query({})).filter(tab => tab.url === completed.url).length === 1, 'Popup cleanup duplicated a tab');
+  assert(!await browser.alarms.get(alarmName(completed.id)), 'Popup cleanup retained alarm');
+  // Put a completed record back to verify cleanup in a fresh background context.
+  const remaining = await data();
+  remaining.stashes.push(stored.stashes.find(item => item.id === completed.id));
+  await browser.storage.local.set({ backstash: remaining });
+  await browser.alarms.create(alarmName(completed.id), { when: Date.now() + 600000 });
+  return { completed, uncertainOpen, uncertainRetry };
+}
+
+export async function verifyRestoreRecovery({ completed, uncertainOpen, uncertainRetry }) {
+  const items = await list();
+  assert(items.length === 2 && items.every(item => item.status === 'restoring'), 'Recovery state lost across extension reload');
+  assert((await browser.alarms.getAll()).length === 0, 'Recovery records were rearmed or retained alarms');
+  const count = async url => (await browser.tabs.query({})).filter(tab => tab.url === url).length;
+  assert(await count(completed.url) === 1 && await count(uncertainOpen.url) === 1, 'Recovery reopened an existing tab');
+  assert(await count(uncertainRetry.url) === 0, 'Uncertain attempt opened automatically');
+  await window.refreshStashes();
+  document.getElementById('restore-all-button').click();
+  await waitFor(() => document.getElementById('status-message').textContent.includes('recovery actions'), 'bulk recovery feedback');
+  assert((await list()).length === 2 && await count(uncertainRetry.url) === 0, 'Bulk restore retried an uncertain attempt');
+  const retryIndex = (await list()).findIndex(item => item.id === uncertainRetry.id);
+  const retryRow = document.querySelectorAll('.stash-item')[retryIndex];
+  assert(retryRow.querySelector('.stash-meta').textContent.includes('Check your tabs'), 'Uncertain restore explanation missing');
+  assert(retryRow.querySelector('button').textContent === 'Restore again', 'Explicit retry action missing');
+  retryRow.querySelector('button').click();
+  await waitFor(() => document.querySelectorAll('.stash-item').length === 1, 'explicit uncertain retry');
+  assert(await count(uncertainRetry.url) === 1, 'Explicit retry failed');
+  document.querySelectorAll('.stash-item button')[1].click();
+  await waitFor(() => document.querySelectorAll('.stash-item').length === 0, 'dismiss uncertain record');
+  assert(await count(uncertainOpen.url) === 1, 'Dismissing uncertainty closed the reopened tab');
+  const urls = [completed.url, uncertainOpen.url, uncertainRetry.url];
+  await browser.tabs.remove((await browser.tabs.query({})).filter(tab => urls.includes(tab.url)).map(tab => tab.id));
+}
+
 export async function prepareReconciliation(url) {
   await reset();
   const token = crypto.randomUUID();

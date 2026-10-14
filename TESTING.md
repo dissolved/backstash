@@ -41,6 +41,7 @@ The runner enables remote system access only in the test process. `--restart` re
 | Popup duration entry and feedback | Submit `15`, `15m`, `2h`, `3d`; reject decimal input |
 | Popup sorted list, restore, delete, restore all | Operate actual production DOM controls and verify storage, alarms, and tabs |
 | Concurrent messages | Overlap cancel, individual/bulk restores, and a new stash; verify exactly one tab per restored stash, no cancelled tab, retained new stash/repeat-last state, and matching alarms |
+| Restore recovery | Seed completed/uncertain progress, test popup cleanup, reload the extension, then verify cleanup-only reconciliation, suppressed uncertain retries, bulk feedback, explicit retry, and dismissal without closing an open tab |
 | Extension reload reconciliation | Actual add-on reload with missing/orphan alarms and an overdue stash; verify exactly one overdue tab |
 | Background lifecycle | Observe natural suspension from the parent process, then verify message wake preserves stash/state and recreates its missing alarm |
 | Scheduled restore | Real one-minute alarm and elapsed wall time; explicitly skipped with `--skip-alarm` |
@@ -59,6 +60,26 @@ Popup tests render the production popup page in a browser tab and suppress only 
 Do not repeat the automated matrix manually after a passing run unless diagnosing a browser/profile-specific issue. Extend the suite when adding behavior; retain manual checks only where automation does not establish the result.
 
 ## Recorded results
+
+### 2026-10-14 — Restore recovery
+
+- All 51 Node tests passed; ESLint and whitespace checks passed. The ten new
+  restore recovery cases fail against the preceding background implementation.
+  Injected failures cover progress/completion/removal writes, storage reads,
+  alarm cleanup, failed-creation reset, and mixed bulk outcomes. A fresh VM
+  background verifies that persisted recovery state outlives in-memory receipts.
+- The quick Firefox run passed, explicitly skipping the real alarm. A final
+  `npm run test:firefox` full headless macOS Firefox 158.0 run passed the real
+  one-minute alarm, concurrency, normal popup/window/container/group checks,
+  natural suspension/message wake, and actual extension reload/reconciliation.
+- Added browser recovery checks seed completed and uncertain records, exercise
+  **Finish cleanup**, reload the actual extension, verify no automatic duplicate
+  creation or uncertain rearming, and exercise bulk feedback, **Restore again**,
+  and **Delete** without closing an already reopened tab.
+- These browser checks seed durable states rather than causing real disk failure
+  or killing Firefox mid-operation. Browser restart was explicitly skipped;
+  OS sleep/wake, physical disk/power loss, and native presentation remain
+  unverified. Automatic retry/backoff is not implemented in this block.
 
 ### 2026-10-14
 

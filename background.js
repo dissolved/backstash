@@ -1,5 +1,8 @@
 const RESTORE_EVENT_PREFIX = "restore-stash:";
 const restoreOperations = new Map();
+// Protect confirmed creations if persisting their completion record fails.
+// Durable "restoring" records cover uncertainty after this context disappears.
+const completedRestores = new Map();
 let mutationQueue = Promise.resolve();
 
 // Serialize complete state transitions, including their tab/alarm side effects.
@@ -275,21 +278,7 @@ async function restoreTabGroupMembership(stashItem, restoredTab) {
 async function restoreStashItem(stashItem) {
   try {
     const restoredTab = await createRestoredTab(stashItem);
-    await restoreTabGroupMembership(stashItem, restoredTab);
-    const notificationId = await notifyStashRestored(stashItem);
-    await clearRestoreAlarm(stashItem.id);
-
-    console.log(
-      `Restored "${stashItem.title}" in ${
-        restoredTab.cookieStoreId ?? "default"
-      } container.`,
-    );
-
-    return {
-      ok: true,
-      restoredTabId: restoredTab.id,
-      notificationId,
-    };
+    return { ok: true, restoredTab };
   } catch (error) {
     console.error("Failed to restore stash:", stashItem.url, error);
     return {
@@ -299,36 +288,94 @@ async function restoreStashItem(stashItem) {
   }
 }
 
-async function performRestoreStashById(stashId) {
+async function finishRestore(stashes, stashItem, receipt) {
+  try {
+    // Persist the fact of creation before clearing its alarm or removing it.
+    // A later context can finish cleanup without looking up a possibly reused ID.
+    if (stashItem.status !== "restored") {
+      await setStashes(stashes.map(item => item.id === stashItem.id ? {
+        ...item, status: "restored", restoredTabId: receipt.restoredTabId,
+      } : item));
+    }
+    await clearRestoreAlarm(stashItem.id);
+    await setStashes(stashes.filter(item => item.id !== stashItem.id));
+    completedRestores.delete(stashItem.id);
+    return { ...receipt, cleanupPending: false };
+  } catch (error) {
+    console.warn("Tab restored; cleanup remains pending:", stashItem.id, error);
+    return { ...receipt, cleanupPending: true };
+  }
+}
+
+async function performRestoreStashById(stashId, confirmRestore = false) {
   const stashes = await getStashes();
   const stashItem = stashes.find((item) => item.id === stashId);
 
   if (!stashItem) {
+    completedRestores.delete(stashId);
     console.warn("No stashed item found for ID:", stashId);
     return;
   }
 
-  const result = await restoreStashItem(stashItem);
-  if (!result.ok) {
-    return result;
+  const receipt = completedRestores.get(stashId) ?? (stashItem.status === "restored" ? {
+    ok: true, restoredTabId: stashItem.restoredTabId, notificationId: null,
+  } : null);
+  if (receipt) return finishRestore(stashes, stashItem, receipt);
+
+  if (stashItem.status === "restoring" && !confirmRestore) {
+    return {
+      ok: false, requiresConfirmation: true,
+      error: "A previous restore may have opened this tab. Check your tabs before choosing Restore again.",
+    };
   }
 
-  const remaining = stashes.filter((item) => item.id !== stashId);
-  await setStashes(remaining);
+  try {
+    await setStashes(stashes.map(item => item.id === stashId ? {
+      ...item, status: "restoring", restoredTabId: null,
+    } : item));
+  } catch (error) {
+    console.error("Could not save restore progress:", error);
+    return { ok: false, error: "Could not save restore progress. No tab was opened." };
+  }
 
+  const creation = await restoreStashItem(stashItem);
+  if (!creation.ok) {
+    try {
+      await setStashes(stashes.map(item => item.id === stashId ? {
+        ...item, status: "scheduled", restoredTabId: null,
+      } : item));
+    } catch (error) {
+      // Leave the durable intent intact; a future context must request review.
+      console.warn("Could not reset failed restore progress:", error);
+    }
+    return { ok: false, error: "Could not reopen this tab. The stash has been retained." };
+  }
+
+  const { restoredTab } = creation;
+  const completed = { ok: true, restoredTabId: restoredTab.id, notificationId: null };
+  completedRestores.set(stashId, completed);
+  const result = await finishRestore(stashes, stashItem, completed);
+  // Grouping and notification failures must never turn successful creation into
+  // another attempt to create the tab. These are best-effort, once per creation.
+  try {
+    await restoreTabGroupMembership(stashItem, restoredTab);
+    result.notificationId = await notifyStashRestored(stashItem);
+  } catch (error) {
+    console.warn("Tab restored; optional presentation failed:", error);
+  }
   return result;
 }
 
 /**
  * Restore a stashed tab when its alarm fires.
  */
-async function restoreStashById(stashId) {
+async function restoreStashById(stashId, confirmRestore = false) {
   const existingRestore = restoreOperations.get(stashId);
   if (existingRestore) {
     return existingRestore;
   }
 
-  const restorePromise = enqueueMutation(() => performRestoreStashById(stashId)).finally(() => {
+  const restorePromise = enqueueMutation(() => performRestoreStashById(stashId, confirmRestore)).finally(() => {
     restoreOperations.delete(stashId);
   });
   restoreOperations.set(stashId, restorePromise);
@@ -352,11 +399,13 @@ async function performRestoreAllStashes() {
 
   let failedCount = 0;
   let restoredCount = 0;
+  let cleanupPendingCount = 0;
 
   for (const stashItem of stashes) {
     const result = await performRestoreStashById(stashItem.id);
     if (result.ok) {
       restoredCount += 1;
+      if (result.cleanupPending) cleanupPendingCount += 1;
       continue;
     }
 
@@ -364,13 +413,14 @@ async function performRestoreAllStashes() {
   }
 
   console.log(
-    `Restore-all completed: ${restoredCount} restored, ${failedCount} remaining.`,
+    `Restore-all completed: ${restoredCount} restored, ${failedCount} failed, ${cleanupPendingCount} awaiting cleanup.`,
   );
 
   return {
     ok: restoredCount > 0,
     restoredCount,
     failedCount,
+    cleanupPendingCount,
   };
 }
 
@@ -389,6 +439,20 @@ async function performReconcileScheduledStashes() {
   let dueRestoreCount = 0;
 
   for (const stashItem of stashes) {
+    if (stashItem.status === "restored" || completedRestores.has(stashItem.id)) {
+      await performRestoreStashById(stashItem.id);
+      continue;
+    }
+    if (stashItem.status === "restoring") {
+      // Never re-arm uncertain attempts, including ones whose original due time
+      // is still in the future. Manual review is required before creating again.
+      try {
+        await clearRestoreAlarm(stashItem.id);
+      } catch (error) {
+        console.warn("Could not clear an uncertain restore alarm:", error);
+      }
+      continue;
+    }
     if (stashItem.wakeAt <= Date.now()) {
       dueRestoreCount += 1;
       await performRestoreStashById(stashItem.id);
@@ -432,6 +496,7 @@ async function listStashes() {
       title: stashItem.title,
       url: stashItem.url,
       wakeAt: stashItem.wakeAt,
+      status: completedRestores.has(stashItem.id) ? "restored" : (stashItem.status ?? "scheduled"),
     }));
 }
 
@@ -453,6 +518,7 @@ async function performCancelStashById(stashId) {
 
   const remaining = stashes.filter((item) => item.id !== stashId);
   await setStashes(remaining);
+  completedRestores.delete(stashId);
   await clearRestoreAlarm(stashId);
 
   return { ok: true };
@@ -522,7 +588,7 @@ browser.runtime.onMessage.addListener((message) => {
   }
 
   if (message?.type === "restore-stash-now") {
-    return restoreStashById(message.stashId);
+    return restoreStashById(message.stashId, message.confirmRestore === true);
   }
 
   if (message?.type === "cancel-stash") {

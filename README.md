@@ -14,6 +14,11 @@ Unlike tab suspension tools, Backstash removes tabs entirely and brings them bac
 - Optional notifications when tabs are restored
 - Keyboard-first workflow with presets and shorthand duration entry
 
+If a restore is interrupted, the stash list may offer **Finish cleanup** for a
+tab already reopened, or **Restore again** when the outcome could not be
+confirmed. Check your open tabs before choosing **Restore again**. **Delete**
+dismisses the saved entry without closing any open tab.
+
 
 ## 🚧 Status
 

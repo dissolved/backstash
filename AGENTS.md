@@ -59,6 +59,14 @@ need.
   crash-safe transactions across storage, tab creation/removal, and alarms.
 - Failed restores retain their stashes for retry. Avoid changing failure paths
   in ways that discard recoverable data or create duplicate tabs.
+- Restore records use `scheduled` (also the default for legacy records),
+  `restoring` (outcome unconfirmed), and `restored` (creation confirmed, cleanup
+  pending). Persist intent before creating a tab. Confirmed records and live
+  completion receipts must only retry cleanup; uncertain records require the
+  user's explicit "Restore again" action. Bulk restore, alarms, and reconciliation
+  must never implicitly confirm uncertain attempts. Do not infer success by
+  matching URLs/titles or by looking up a tab ID from a previous browser session.
+  See `docs/restore-recovery.md` before changing this protocol or adding retries.
 - Keep settings and state in the existing storage root. Plan migration and
   compatibility explicitly when changing the schema.
 - Keep permissions and exposure of URLs/titles minimal. Do not add telemetry,

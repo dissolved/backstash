@@ -6,8 +6,9 @@
 - Implemented: reconciliation on extension load and browser startup recreates missing alarms, removes orphaned restore alarms, and restores overdue stashes.
 - Implemented: concurrent individual restore requests for the same stash share one operation.
 - Implemented: a shared mutation queue coordinates stash creation, repeat-last, restore-all, individual restores, cancellation, and reconciliation. Overlapping operations no longer write stale stash lists; queued stash requests retain their selected tab identity.
-- Define automatic retry/backoff for failed restores; currently failed stashes remain stored for manual retry or later reconciliation.
-- Harden recovery from partial tab/storage/alarm failures and process interruption; the in-memory queue does not make Firefox API side effects and storage writes atomic.
+- Implemented: restore progress is persisted before tab creation; confirmed reopened tabs are cleanup-only after storage/alarm failure or background reload. Unconfirmed interrupted attempts require review and an explicit retry instead of automatically reopening.
+- Define bounded automatic retry/backoff for known creation failures. Only ordinary scheduled stashes are eligible; confirmed completions need cleanup, and uncertain attempts require user review. Failed stashes currently remain stored for manual retry or later reconciliation.
+- Harden stash creation/source-closure failure recovery and verify process/power-loss behavior. Restore progress markers reduce duplicate risk but do not make Firefox API side effects and storage writes atomic; see `docs/restore-recovery.md`.
 - Verify upgrade/schema migration behavior when the storage schema changes.
 
 ### Automated Firefox coverage

@@ -145,6 +145,10 @@ def main():
             for name in ['restoreContexts', 'containers', 'groups', 'popup', 'rejectedInputs', 'concurrency']:
                 scenario(name, [fixture_url])
                 print('PASS ' + name, flush=True)
+            recovery = scenario('prepareRestoreRecovery', [fixture_url])
+            reload_extension(driver)
+            scenario('verifyRestoreRecovery', [recovery])
+            print('PASS restore recovery: popup actions and durable records across extension reload', flush=True)
             expected = scenario('prepareReconciliation', [fixture_url])
             reload_extension(driver)
             scenario('verifyReconciliation', [expected])
