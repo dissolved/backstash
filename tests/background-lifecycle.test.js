@@ -58,6 +58,7 @@ async function harness() {
     browser, alarms, created, removed, notifications, listeners,
     send: (type, fields = {}) => listeners.message({ type, ...fields }),
     read: () => stored.backstash,
+    stashOrderCount: () => vm.runInContext('stashOrders.size', context),
     selectTab(id) { activeTabId = id; },
     seed(stashes, settings = {}, state = {}) { stored = { backstash: { schemaVersion: 1, stashes, settings, state } }; },
     reconcile: () => vm.runInContext('reconcileScheduledStashes()', context),
@@ -369,6 +370,61 @@ test('finishing an older pending stash preserves the preset of a newer completed
   assert.equal(h.read().state.lastStashPresetMinutes, 20);
   assert.equal(h.read().state.lastStashId, latestId);
 });
+
+test('stash ordering bookkeeping is released after repeated stash and delete or restore cycles', async () => {
+  const h = await harness();
+  for (let index = 0; index < 10; index += 1) {
+    assert((await h.send('stash-for-minutes', { minutes: 15 })).ok);
+    const stashId = h.read().stashes[0].id;
+    const action = index % 2 === 0 ? 'cancel-stash' : 'restore-stash-now';
+    assert((await h.send(action, { stashId })).ok);
+    assert.equal(h.read().stashes.length, 0);
+    assert.equal(h.stashOrderCount(), 0, 'completed actions must not accumulate ordering entries');
+  }
+});
+
+test('deleting the last pending closure releases ordering entries even if alarm cleanup rejects', async () => {
+  const h = await harness();
+  const set = h.browser.storage.local.set;
+  h.browser.storage.local.set = async value => {
+    if (value.backstash.stashes.some(stash => stash.status === 'scheduled')) throw new Error('completion failed');
+    return set(value);
+  };
+  assert(!(await h.send('stash-for-minutes', { minutes: 15 })).ok);
+  const pendingId = h.read().stashes[0].id;
+  h.browser.storage.local.set = set;
+  assert((await h.send('stash-for-minutes', { minutes: 20 })).ok);
+  h.browser.alarms.clear = async () => { throw new Error('alarm cleanup failed'); };
+  await assert.rejects(h.send('cancel-stash', { stashId: pendingId }), /alarm cleanup failed/);
+  assert.equal(h.read().stashes.length, 1);
+  assert.equal(h.read().state.lastStashPresetMinutes, 20);
+  assert.equal(h.stashOrderCount(), 0);
+});
+
+for (const action of ['cancel-stash', 'restore-stash-now']) {
+  test(`ordering cleanup preserves newer repeat-last metadata after ${action}`, async () => {
+    const h = await harness();
+    const set = h.browser.storage.local.set;
+    h.browser.storage.local.set = async value => {
+      if (value.backstash.stashes.some(stash => stash.status === 'scheduled')) throw new Error('completion failed');
+      return set(value);
+    };
+    assert(!(await h.send('stash-for-minutes', { minutes: 15 })).ok);
+    const pendingId = h.read().stashes[0].id;
+    h.browser.storage.local.set = set;
+    for (let index = 0; index < 10; index += 1) {
+      assert((await h.send('stash-for-minutes', { minutes: 20 + index })).ok);
+      const stashId = h.read().state.lastStashId;
+      assert((await h.send(action, { stashId })).ok);
+      assert(h.stashOrderCount() <= 2, 'retain only the pending order and the newest completed order');
+    }
+    const latestId = h.read().state.lastStashId;
+    assert((await h.send('finish-stash', { stashId: pendingId })).ok);
+    assert.equal(h.read().state.lastStashPresetMinutes, 29);
+    assert.equal(h.read().state.lastStashId, latestId);
+    assert.equal(h.stashOrderCount(), 0);
+  });
+}
 
 test('known failures retry after 1, 5 and 15 minutes, then stop across alarms and reloads', async () => {
   const h = await harness();

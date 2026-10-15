@@ -50,6 +50,8 @@ need.
   new record; uncertain closure or failed rollback retains a copy for review.
   Preserve newer repeat-last metadata when finishing an older pending entry;
   `state.lastStashId` and live stash order distinguish successful newer actions.
+  Bound live ordering metadata to pending closures plus at most one newer
+  completed order; release it when no pending closures remain, even on rejection.
   Live closure receipts may finish scheduling without closing any tab again.
   After losing that receipt, never infer source closure from a stored browser
   ID, URL, or title. Only explicit "Restore saved copy" may reopen an uncertain

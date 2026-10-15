@@ -10,11 +10,33 @@ const stashOrders = new Map();
 let nextStashOrder = 0;
 let mutationQueue = Promise.resolve();
 
+function pruneStashOrders() {
+  if (closedStashes.size === 0) {
+    stashOrders.clear();
+    return;
+  }
+
+  // Pending closures still need their order. Keep only the newest completed
+  // order as well: even after its stash is deleted/restored, lastStashId may
+  // refer to it and must prevent an older completion from replacing its preset.
+  let latestCompletedId = null;
+  let latestCompletedOrder = 0;
+  for (const [id, order] of stashOrders) {
+    if (!closedStashes.has(id) && order > latestCompletedOrder) {
+      latestCompletedId = id;
+      latestCompletedOrder = order;
+    }
+  }
+  for (const id of stashOrders.keys()) {
+    if (!closedStashes.has(id) && id !== latestCompletedId) stashOrders.delete(id);
+  }
+}
+
 // Serialize complete state transitions, including their tab/alarm side effects.
 // Only entry points enqueue; internal helpers must not enqueue and await another
 // operation while holding the queue. A rejected operation must not block later work.
 function enqueueMutation(operation) {
-  const result = mutationQueue.then(operation);
+  const result = mutationQueue.then(operation).finally(pruneStashOrders);
   mutationQueue = result.catch(() => {});
   return result;
 }

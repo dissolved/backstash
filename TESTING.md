@@ -13,6 +13,10 @@ An injected clock checks the 1/5/15-minute retry policy without waiting: due-tim
 guards, exhaustion, reload persistence, manual cycle reset, successful recovery,
 cancellation, stale alarms, scheduling failures, and ordering in the stash list.
 
+Stash-order cleanup checks repeat stash/delete/restore cycles, bounded bookkeeping
+while older closures remain pending, preservation of newer repeat-last metadata
+after its stash is removed, and cleanup after a rejected cancellation alarm step.
+
 ## Automated Firefox checks
 
 Following [Tabometer's approach](https://github.com/dissolved/tabometer), the runner uses [Mozilla Marionette](https://firefox-source-docs.mozilla.org/python/marionette_driver.html), a disposable profile, and loopback fixture pages. Install Firefox desktop and [uv](https://docs.astral.sh/uv/), then run:
