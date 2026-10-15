@@ -17,6 +17,10 @@ Stash-order cleanup checks repeat stash/delete/restore cycles, bounded bookkeepi
 while older closures remain pending, preservation of newer repeat-last metadata
 after its stash is removed, and cleanup after a rejected cancellation alarm step.
 
+Storage tests mutate returned preset arrays with empty or partially populated
+storage and verify that later reads and unrelated writes retain the defaults.
+Configured presets also remain isolated from caller mutations.
+
 ## Automated Firefox checks
 
 Following [Tabometer's approach](https://github.com/dissolved/tabometer), the runner uses [Mozilla Marionette](https://firefox-source-docs.mozilla.org/python/marionette_driver.html), a disposable profile, and loopback fixture pages. Install Firefox desktop and [uv](https://docs.astral.sh/uv/), then run:

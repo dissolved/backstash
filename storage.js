@@ -20,7 +20,10 @@ function cloneDefaultData() {
   return {
     schemaVersion: DEFAULT_DATA.schemaVersion,
     stashes: [...DEFAULT_DATA.stashes],
-    settings: { ...DEFAULT_DATA.settings },
+    settings: {
+      ...DEFAULT_DATA.settings,
+      stashPresetMinutes: [...DEFAULT_DATA.settings.stashPresetMinutes],
+    },
     state: { ...DEFAULT_DATA.state },
   };
 }
@@ -28,20 +31,21 @@ function cloneDefaultData() {
 async function getData() {
   const result = await browser.storage.local.get(STORAGE_KEY);
   const stored = result[STORAGE_KEY];
+  const defaults = cloneDefaultData();
 
   if (!stored) {
-    return cloneDefaultData();
+    return defaults;
   }
 
   return {
-    schemaVersion: stored.schemaVersion ?? DEFAULT_DATA.schemaVersion,
+    schemaVersion: stored.schemaVersion ?? defaults.schemaVersion,
     stashes: Array.isArray(stored.stashes) ? stored.stashes : [],
     settings: {
-      ...DEFAULT_DATA.settings,
+      ...defaults.settings,
       ...(stored.settings ?? {}),
     },
     state: {
-      ...DEFAULT_DATA.state,
+      ...defaults.state,
       ...(stored.state ?? {}),
     },
   };
