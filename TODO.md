@@ -55,6 +55,14 @@
 - Support actions such as:
   - edit scheduled restore time
 
+### Stash panel keyboard navigation (planned)
+- Keep initial focus in the duration text input. By default, Arrow Down moves focus to the first listed stash; Arrow Up moves focus to the last listed stash. With an empty list, keep focus in the input.
+- Once a stash is selected, Arrow Up/Down move focus through the listed stashes in display order, with a visible focus indicator.
+- Enter/Return restores the selected stash through its existing restore action. Preserve recovery-specific actions and explicit review requirements for interrupted stashes/restores; keyboard navigation must not bypass them.
+- Do not assign a default key binding to delete a stash, because deletion is destructive. Consider an optional user-assigned delete binding in future shortcut settings.
+- Preserve normal duration entry/submission and Tab navigation to existing controls.
+- Add automated popup checks for input-to-list focus, list navigation, Enter/Return restoration, empty-list behavior, recovery actions, and absence of a default delete binding. Retain native keyboard and screen-reader usability verification where automation does not establish it.
+
 ## Medium priority
 
 ### Same-tab-group restore after browser restart (Exploratory, since groupId doesn't persist across restarts)
